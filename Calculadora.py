@@ -190,20 +190,34 @@ tabla_horas_cocina.index = [f"HORAS {tipo_productividad}"]
 # --------------------------------------------------
 # OUTPUTS - TABLAS PRINCIPALES
 # --------------------------------------------------
-st.header("Ventas diarias")
+st.header("💰 Ventas diarias")
 st.dataframe(ventas_df.round(2), use_container_width=True)
 
-st.header("Productividad teórica – SALA")
-st.dataframe(tabla_sala.round(2), use_container_width=True)
+st.markdown("---")
+st.header("📊 Productividad Teórica")
 
-st.header("Productividad teórica – COCINA")
-st.dataframe(tabla_cocina.round(2), use_container_width=True)
+col1, col2 = st.columns(2)
 
-st.header("Horas Teóricas – SALA")
-st.dataframe(tabla_horas_sala.round(2), use_container_width=True)
+with col1:
+    st.subheader("🍽️ SALA")
+    st.dataframe(tabla_sala.round(2), use_container_width=True)
 
-st.header("Horas Teóricas – COCINA")
-st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
+with col2:
+    st.subheader("👨‍🍳 COCINA")
+    st.dataframe(tabla_cocina.round(2), use_container_width=True)
+
+st.markdown("---")
+st.header("⏰ Horas Teóricas")
+
+col3, col4 = st.columns(2)
+
+with col3:
+    st.subheader("🍽️ SALA")
+    st.dataframe(tabla_horas_sala.round(2), use_container_width=True)
+
+with col4:
+    st.subheader("👨‍🍳 COCINA")
+    st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
 
 # --------------------------------------------------
 # MAPA DE CALOR - DISTRIBUCIÓN DE HORAS
