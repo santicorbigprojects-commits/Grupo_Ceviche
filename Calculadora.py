@@ -232,6 +232,13 @@ def cargar_distribucion_ventas():
     # Convertir porcentaje_ventas a numérico
     df['porcentaje_ventas'] = pd.to_numeric(df['porcentaje_ventas'], errors='coerce').fillna(0)
     
+    # NORMALIZAR NOMBRES DE DÍAS (agregar tildes)
+    df['dia'] = df['dia'].str.strip().str.upper()
+    df['dia'] = df['dia'].replace({
+        'MIERCOLES': 'MIÉRCOLES',
+        'SABADO': 'SÁBADO'
+    })
+    
     return df
 
 try:
