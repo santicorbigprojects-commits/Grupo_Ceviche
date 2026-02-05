@@ -212,11 +212,30 @@ import plotly.express as px
 st.markdown("---")
 st.header("📊 Distribución Teórica de Horas por Bloques de 30 min")
 
-# Cargar distribución de ventas
 @st.cache_data
 def cargar_distribucion_ventas():
-    return pd.read_csv('data/distribucion_ventas_local.csv')
-
+    # Intentar leer con diferentes separadores
+    try:
+        # Primero intentar con punto y coma
+        df = pd.read_csv('data/distribucion_ventas_local.csv', sep=';')
+    except:
+        try:
+            # Luego intentar con tabulación
+            df = pd.read_csv('data/distribucion_ventas_local.csv', sep='\t')
+        except:
+            # Finalmente intentar con coma
+            df = pd.read_csv('data/distribucion_ventas_local.csv', sep=',')
+    
+    # Convertir bloque_30min a formato HH:MM (sin segundos)
+    df['bloque_30min'] = pd.to_datetime(df['bloque_30min'], format='%H:%M:%S').dt.strftime('%H:%M')
+    
+    # Asegurar que las columnas estén limpias
+    df.columns = df.columns.str.strip()
+    
+    # Convertir porcentaje_ventas a numérico (por si viene como texto)
+    df['porcentaje_ventas'] = pd.to_numeric(df['porcentaje_ventas'], errors='coerce').fillna(0)
+    
+    return df
 try:
     df_distribucion = cargar_distribucion_ventas()
     
