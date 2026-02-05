@@ -617,3 +617,169 @@ except FileNotFoundError:
     st.error("⚠️ Archivo no encontrado. Por favor, asegúrate de que el archivo data/distribucion_ventas_local.csv existe en tu repositorio.")
 except Exception as e:
     st.error(f"❌ Error al cargar datos: {str(e)}")
+
+# ==========================================
+        # PRODUCTIVIDAD EFECTIVA POR DÍA
+        # ==========================================
+        st.markdown("---")
+        st.header("💼 Productividad Efectiva por Día")
+        
+        st.info("""
+        **Productividad Efectiva** = Ventas del día / (Horas Sala + Horas Cocina)
+        
+        Esta métrica muestra cuántos euros se generan por cada hora trabajada total (sala + cocina).
+        """)
+        
+        # Calcular acumulados por día para SALA
+        horas_sala_por_dia = matriz_horas.sum(axis=0) if area_seleccionada == "SALA" else None
+        
+        # Necesitamos calcular también para el otro área
+        # Obtener datos de la otra área
+        if area_seleccionada == "SALA":
+            # Necesitamos datos de COCINA
+            tipo_distribucion_cocina = "glovo&local"
+            horas_semanales_cocina = tabla_horas_cocina.sum(axis=1).values[0]
+            
+            df_cocina = df_local[df_local['Distribución'] == tipo_distribucion_cocina].copy()
+            df_cocina['horas_bloque'] = df_cocina['porcentaje_ventas'] * horas_semanales_cocina
+            df_cocina['hora_num'] = pd.to_datetime(df_cocina['bloque_30min'], format='%H:%M').dt.hour
+            df_cocina = df_cocina[~((df_cocina['hora_num'] >= 2) & (df_cocina['hora_num'] < 8))].copy()
+            
+            matriz_horas_cocina = df_cocina.pivot_table(
+                index='bloque_30min',
+                columns='día',
+                values='horas_bloque',
+                fill_value=0
+            )
+            matriz_horas_cocina = matriz_horas_cocina.reindex(columns=dias_orden, fill_value=0)
+            
+            horas_sala_por_dia = matriz_horas.sum(axis=0)
+            horas_cocina_por_dia = matriz_horas_cocina.sum(axis=0)
+        else:
+            # Necesitamos datos de SALA
+            tipo_distribucion_sala = "local"
+            horas_semanales_sala = tabla_horas_sala.sum(axis=1).values[0]
+            
+            df_sala = df_local[df_local['Distribución'] == tipo_distribucion_sala].copy()
+            df_sala['horas_bloque'] = df_sala['porcentaje_ventas'] * horas_semanales_sala
+            df_sala['hora_num'] = pd.to_datetime(df_sala['bloque_30min'], format='%H:%M').dt.hour
+            df_sala = df_sala[~((df_sala['hora_num'] >= 2) & (df_sala['hora_num'] < 8))].copy()
+            
+            matriz_horas_sala = df_sala.pivot_table(
+                index='bloque_30min',
+                columns='día',
+                values='horas_bloque',
+                fill_value=0
+            )
+            matriz_horas_sala = matriz_horas_sala.reindex(columns=dias_orden, fill_value=0)
+            
+            horas_sala_por_dia = matriz_horas_sala.sum(axis=0)
+            horas_cocina_por_dia = matriz_horas.sum(axis=0)
+        
+        # Calcular ventas por día desde matriz_ventas
+        ventas_por_dia = matriz_ventas.sum(axis=0)
+        
+        # Calcular productividad efectiva
+        horas_totales_por_dia = horas_sala_por_dia + horas_cocina_por_dia
+        productividad_efectiva = ventas_por_dia / horas_totales_por_dia
+        
+        # Crear DataFrame resumen
+        productividad_df = pd.DataFrame({
+            "Día": dias_orden,
+            "Ventas (€)": ventas_por_dia.values,
+            "Horas Sala": horas_sala_por_dia.values,
+            "Horas Cocina": horas_cocina_por_dia.values,
+            "Horas Totales": horas_totales_por_dia.values,
+            "Productividad Efectiva (€/h)": productividad_efectiva.values
+        })
+        
+        # Añadir fila de TOTAL/PROMEDIO
+        total_ventas = ventas_por_dia.sum()
+        total_horas_sala = horas_sala_por_dia.sum()
+        total_horas_cocina = horas_cocina_por_dia.sum()
+        total_horas = horas_totales_por_dia.sum()
+        productividad_efectiva_promedio = total_ventas / total_horas
+        
+        total_row_prod = pd.DataFrame({
+            "Día": ["PROMEDIO SEMANAL"],
+            "Ventas (€)": [total_ventas / 7],
+            "Horas Sala": [total_horas_sala / 7],
+            "Horas Cocina": [total_horas_cocina / 7],
+            "Horas Totales": [total_horas / 7],
+            "Productividad Efectiva (€/h)": [productividad_efectiva_promedio]
+        })
+        
+        productividad_df = pd.concat([productividad_df, total_row_prod], ignore_index=True)
+        
+        # Mostrar tabla con estilo
+        st.dataframe(
+            productividad_df.style.format({
+                "Ventas (€)": "€{:.2f}",
+                "Horas Sala": "{:.2f}",
+                "Horas Cocina": "{:.2f}",
+                "Horas Totales": "{:.2f}",
+                "Productividad Efectiva (€/h)": "€{:.2f}"
+            }).background_gradient(subset=["Productividad Efectiva (€/h)"], cmap="RdYlGn"),
+            use_container_width=True
+        )
+        
+        # Gráfico de productividad efectiva
+        st.subheader("📈 Productividad Efectiva por Día")
+        
+        fig_prod = px.bar(
+            productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL'],
+            x="Día",
+            y="Productividad Efectiva (€/h)",
+            title="Productividad Efectiva por Día de la Semana",
+            color="Productividad Efectiva (€/h)",
+            color_continuous_scale="RdYlGn",
+            text="Productividad Efectiva (€/h)"
+        )
+        
+        fig_prod.update_traces(texttemplate='€%{text:.2f}', textposition='outside')
+        fig_prod.update_layout(height=400)
+        
+        st.plotly_chart(fig_prod, use_container_width=True)
+        
+        # Comparativa visual
+        st.subheader("📊 Comparativa: Horas vs Ventas por Día")
+        
+        fig_comparativa = go.Figure()
+        
+        # Barras de horas totales
+        fig_comparativa.add_trace(go.Bar(
+            name='Horas Totales',
+            x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
+            y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Horas Totales'],
+            yaxis='y',
+            marker_color='lightblue'
+        ))
+        
+        # Línea de ventas
+        fig_comparativa.add_trace(go.Scatter(
+            name='Ventas',
+            x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
+            y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Ventas (€)'],
+            yaxis='y2',
+            marker_color='green',
+            line=dict(width=3)
+        ))
+        
+        # Configurar ejes
+        fig_comparativa.update_layout(
+            title='Relación entre Horas Trabajadas y Ventas',
+            xaxis=dict(title='Día'),
+            yaxis=dict(
+                title='Horas Totales',
+                side='left'
+            ),
+            yaxis2=dict(
+                title='Ventas (€)',
+                overlaying='y',
+                side='right'
+            ),
+            height=400,
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_comparativa, use_container_width=True)
