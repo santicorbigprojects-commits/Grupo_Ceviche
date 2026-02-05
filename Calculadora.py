@@ -175,6 +175,17 @@ tabla_cocina = pd.DataFrame(
     index=[f"PRODUCTIVIDAD {tipo_productividad}"],
     columns=dias
 )
+# --------------------------------------------------
+# CÁLCULO HORAS TEÓRICAS
+# --------------------------------------------------
+
+# Evitar divisiones raras
+tabla_horas_sala = venta_sala / tabla_sala
+tabla_horas_cocina = venta_diaria / tabla_cocina
+
+# Renombrar índices
+tabla_horas_sala.index = [f"HORAS {tipo_productividad}"]
+tabla_horas_cocina.index = [f"HORAS {tipo_productividad}"]
 
 # --------------------------------------------------
 # OUTPUTS
@@ -182,8 +193,15 @@ tabla_cocina = pd.DataFrame(
 st.header("Ventas diarias")
 st.dataframe(ventas_df.round(2), use_container_width=True)
 
-st.header("Productividad teórica – Sala")
+st.header("Productividad teórica – SALA")
 st.dataframe(tabla_sala.round(2), use_container_width=True)
 
-st.header("Productividad teórica – Cocina")
+st.header("Productividad teórica – COCINA")
 st.dataframe(tabla_cocina.round(2), use_container_width=True)
+
+st.header("Horas Teóricas – SALA")
+st.dataframe(tabla_horas_sala.round(2), use_container_width=True)
+
+st.header("Horas Teóricas – COCINA")
+st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
+
