@@ -175,17 +175,34 @@ tabla_cocina = pd.DataFrame(
     index=[f"PRODUCTIVIDAD {tipo_productividad}"],
     columns=dias
 )
+
 # --------------------------------------------------
 # CÁLCULO HORAS TEÓRICAS
 # --------------------------------------------------
-
-# Evitar divisiones raras
 tabla_horas_sala = venta_sala / tabla_sala
 tabla_horas_cocina = venta_diaria / tabla_cocina
 
 # Renombrar índices
 tabla_horas_sala.index = [f"HORAS {tipo_productividad}"]
 tabla_horas_cocina.index = [f"HORAS {tipo_productividad}"]
+
+# --------------------------------------------------
+# OUTPUTS - TABLAS PRINCIPALES
+# --------------------------------------------------
+st.header("Ventas diarias")
+st.dataframe(ventas_df.round(2), use_container_width=True)
+
+st.header("Productividad teórica – SALA")
+st.dataframe(tabla_sala.round(2), use_container_width=True)
+
+st.header("Productividad teórica – COCINA")
+st.dataframe(tabla_cocina.round(2), use_container_width=True)
+
+st.header("Horas Teóricas – SALA")
+st.dataframe(tabla_horas_sala.round(2), use_container_width=True)
+
+st.header("Horas Teóricas – COCINA")
+st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
 
 # --------------------------------------------------
 # MAPA DE CALOR - DISTRIBUCIÓN DE HORAS
@@ -260,7 +277,7 @@ try:
             side="bottom",
             tickangle=45,
             tickmode='auto',
-            nticks=20  # Ajustar número de etiquetas según densidad
+            nticks=20
         )
         
         fig.update_layout(
@@ -269,7 +286,7 @@ try:
             yaxis_title="Día de la semana"
         )
         
-        # Añadir anotaciones de valores en celdas con más horas (opcional)
+        # Añadir anotaciones de valores en celdas con más horas
         fig.update_traces(
             text=matriz_horas.T.round(1),
             texttemplate="%{text}",
@@ -355,7 +372,7 @@ try:
         
         st.plotly_chart(fig_barras, use_container_width=True)
         
-        # Análisis de franjas horarias (agrupación inteligente)
+        # Análisis de franjas horarias
         st.subheader("⏰ Análisis por franjas horarias")
         
         # Crear columna de hora numérica
@@ -451,22 +468,17 @@ except FileNotFoundError:
     
     Por favor, asegúrate de que el archivo `data/distribucion_ventas_local.csv` 
     existe en tu repositorio con la siguiente estructura:
-
-# --------------------------------------------------
-# OUTPUTS
-# --------------------------------------------------
-st.header("Ventas diarias")
-st.dataframe(ventas_df.round(2), use_container_width=True)
-
-st.header("Productividad teórica – SALA")
-st.dataframe(tabla_sala.round(2), use_container_width=True)
-
-st.header("Productividad teórica – COCINA")
-st.dataframe(tabla_cocina.round(2), use_container_width=True)
-
-st.header("Horas Teóricas – SALA")
-st.dataframe(tabla_horas_sala.round(2), use_container_width=True)
-
-st.header("Horas Teóricas – COCINA")
-st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
+```
+    local,dia,bloque_30min,porcentaje_ventas
+    MERIDIANA,LUNES,12:00,0.0045
+    MERIDIANA,LUNES,12:30,0.0067
+    ...
+```
+    
+    Donde la suma de todos los `porcentaje_ventas` para cada local debe ser ≈ 1.0
+    """)
+except Exception as e:
+    st.error(f"❌ Error al cargar datos: {str(e)}")
+    st.exception(e)
+```
 
