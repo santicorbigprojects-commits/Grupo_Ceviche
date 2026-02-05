@@ -247,13 +247,46 @@ def cargar_distribucion_ventas():
     df['porcentaje_ventas'] = pd.to_numeric(df['porcentaje_ventas'], errors='coerce').fillna(0)
     
     # NORMALIZAR NOMBRES DE DÍAS (agregar tildes)
-    df['dia'] = df['dia'].str.strip().str.upper()
-    df['dia'] = df['dia'].replace({
+    df['día'] = df['día'].str.strip().str.upper()
+    df['día'] = df['día'].replace({
         'MIERCOLES': 'MIÉRCOLES',
         'SABADO': 'SÁBADO'
     })
     
+    # Normalizar columna Distribución
+    df['Distribución'] = df['Distribución'].str.strip()
+    
     return df
+
+def ordenar_bloques_horarios(bloques):
+    """
+    Ordena los bloques poniendo los de 8:00-23:30 primero,
+    luego 0:00-1:30 al final
+    """
+    # Convertir a datetime para ordenar
+    bloques_dt = pd.to_datetime(bloques, format='%H:%M')
+    
+    # Separar bloques
+    bloques_dia = []  # 8:00 - 23:30
+    bloques_noche = []  # 0:00 - 1:30
+    
+    for i, bloque in enumerate(bloques):
+        hora = bloques_dt[i].hour
+        if 2 <= hora < 8:  # Filtrar 2:00-7:30 (no hay ventas)
+            continue
+        elif hora >= 8 or hora == 0:  # 8:00-23:30 o 0:00
+            if hora >= 8:
+                bloques_dia.append(bloque)
+            else:  # 0:00-1:30
+                bloques_noche.append(bloque)
+        elif hora == 1:  # 1:00-1:30
+            bloques_noche.append(bloque)
+    
+    # Ordenar cada grupo
+    bloques_dia_sorted = sorted(bloques_dia, key=lambda x: pd.to_datetime(x, format='%H:%M'))
+    bloques_noche_sorted = sorted(bloques_noche, key=lambda x: pd.to_datetime(x, format='%H:%M'))
+    
+    return bloques_dia_sorted + bloques_noche_sorted
 
 try:
     df_distribucion = cargar_distribucion_ventas()
@@ -262,31 +295,45 @@ try:
     df_local = df_distribucion[df_distribucion['local'] == local].copy()
     
     if len(df_local) > 0:
-        # Verificar suma
-        suma_total = df_local['porcentaje_ventas'].sum()
-        st.caption(f"ℹ️ Suma de distribución semanal: {suma_total:.4f} (debe ser ≈ 1.0)")
-        
         # Selector de área
         area_seleccionada = st.selectbox(
             "Selecciona área para visualizar",
             ["SALA", "COCINA"]
         )
         
-        # Obtener horas semanales
+        # Seleccionar tipo de distribución según área
         if area_seleccionada == "SALA":
+            tipo_distribucion = "local"
             horas_semanales = tabla_horas_sala.sum(axis=1).values[0]
-        else:
+        else:  # COCINA
+            tipo_distribucion = "glovo&local"
             horas_semanales = tabla_horas_cocina.sum(axis=1).values[0]
+        
+        # Filtrar por tipo de distribución
+        df_filtrado = df_local[df_local['Distribución'] == tipo_distribucion].copy()
+        
+        # Verificar suma
+        suma_total = df_filtrado['porcentaje_ventas'].sum()
+        st.caption(f"ℹ️ Suma de distribución semanal ({tipo_distribucion}): {suma_total:.4f} (debe ser ≈ 1.0)")
         
         st.info(f"**Horas semanales totales ({area_seleccionada}):** {horas_semanales:.2f} horas")
         
+        # ==========================================
+        # MAPA DE CALOR 1: DISTRIBUCIÓN DE HORAS
+        # ==========================================
+        st.subheader("🕐 Distribución de Horas Requeridas")
+        
         # Calcular horas por bloque
-        df_local['horas_bloque'] = df_local['porcentaje_ventas'] * horas_semanales
+        df_filtrado['horas_bloque'] = df_filtrado['porcentaje_ventas'] * horas_semanales
+        
+        # Filtrar bloques entre 2:00-7:59 (excluir horas sin ventas)
+        df_filtrado['hora_num'] = pd.to_datetime(df_filtrado['bloque_30min'], format='%H:%M').dt.hour
+        df_filtrado = df_filtrado[~((df_filtrado['hora_num'] >= 2) & (df_filtrado['hora_num'] < 8))].copy()
         
         # Crear matriz pivote
-        matriz_horas = df_local.pivot_table(
+        matriz_horas = df_filtrado.pivot_table(
             index='bloque_30min',
-            columns='dia',
+            columns='día',
             values='horas_bloque',
             fill_value=0
         )
@@ -294,6 +341,10 @@ try:
         # Ordenar días
         dias_orden = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
         matriz_horas = matriz_horas.reindex(columns=dias_orden, fill_value=0)
+        
+        # Reordenar bloques (8:00-23:30, luego 0:00-1:30)
+        bloques_ordenados = ordenar_bloques_horarios(matriz_horas.index.tolist())
+        matriz_horas = matriz_horas.reindex(bloques_ordenados)
         
         # Verificación
         suma_matriz = matriz_horas.sum().sum()
@@ -319,7 +370,7 @@ try:
                 side="bottom",
                 tickangle=45,
                 tickmode='auto',
-                nticks=20
+                nticks=25
             )
         )
         
@@ -327,11 +378,81 @@ try:
         fig.update_traces(
             text=matriz_horas.T.round(1),
             texttemplate="%{text}",
-            textfont={"size": 8},
+            textfont={"size": 7},
             hovertemplate='Día: %{y}<br>Hora: %{x}<br>Horas: %{z:.2f}<extra></extra>'
         )
         
         st.plotly_chart(fig, use_container_width=True)
+        
+        # ==========================================
+        # MAPA DE CALOR 2: DISTRIBUCIÓN DE VENTAS
+        # ==========================================
+        st.markdown("---")
+        st.subheader("💰 Distribución Promedio de Ventas Semanales")
+        
+        # Filtrar distribución glovo&local para ventas
+        df_ventas = df_local[df_local['Distribución'] == "glovo&local"].copy()
+        
+        # Calcular ventas por bloque
+        venta_semanal = venta_diaria * 7
+        df_ventas['venta_bloque'] = df_ventas['porcentaje_ventas'] * venta_semanal
+        
+        # Filtrar bloques entre 2:00-7:59
+        df_ventas['hora_num'] = pd.to_datetime(df_ventas['bloque_30min'], format='%H:%M').dt.hour
+        df_ventas = df_ventas[~((df_ventas['hora_num'] >= 2) & (df_ventas['hora_num'] < 8))].copy()
+        
+        # Crear matriz pivote
+        matriz_ventas = df_ventas.pivot_table(
+            index='bloque_30min',
+            columns='día',
+            values='venta_bloque',
+            fill_value=0
+        )
+        
+        # Ordenar días
+        matriz_ventas = matriz_ventas.reindex(columns=dias_orden, fill_value=0)
+        
+        # Reordenar bloques
+        bloques_ordenados_ventas = ordenar_bloques_horarios(matriz_ventas.index.tolist())
+        matriz_ventas = matriz_ventas.reindex(bloques_ordenados_ventas)
+        
+        # Crear mapa de calor de ventas
+        fig_ventas = px.imshow(
+            matriz_ventas.T,
+            labels=dict(x="Bloque de 30 min", y="Día", color="Ventas (€)"),
+            x=matriz_ventas.index,
+            y=matriz_ventas.columns,
+            color_continuous_scale="Greens",
+            aspect="auto",
+            title=f"Distribución Promedio de Ventas Semanales ({local})"
+        )
+        
+        # Configurar ejes
+        fig_ventas.update_layout(
+            height=500,
+            xaxis_title="Hora del día",
+            yaxis_title="Día de la semana",
+            xaxis=dict(
+                side="bottom",
+                tickangle=45,
+                tickmode='auto',
+                nticks=25
+            )
+        )
+        
+        # Añadir valores en celdas
+        fig_ventas.update_traces(
+            text=matriz_ventas.T.round(0),
+            texttemplate="€%{text}",
+            textfont={"size": 7},
+            hovertemplate='Día: %{y}<br>Hora: %{x}<br>Ventas: €%{z:.2f}<extra></extra>'
+        )
+        
+        st.plotly_chart(fig_ventas, use_container_width=True)
+        
+        # ==========================================
+        # RESÚMENES Y ANÁLISIS
+        # ==========================================
         
         # Resumen por día
         st.subheader("📋 Resumen de horas por día")
@@ -359,35 +480,23 @@ try:
             use_container_width=True
         )
         
-        # Top 10 bloques
-        st.subheader("🔥 Top 10 Bloques de Mayor Demanda")
-        
-        matriz_long = matriz_horas.stack().reset_index()
-        matriz_long.columns = ['Bloque', 'Día', 'Horas']
-        matriz_long = matriz_long.sort_values('Horas', ascending=False).head(10)
-        
-        st.dataframe(
-            matriz_long.reset_index(drop=True).style.format({"Horas": "{:.2f}"}),
-            use_container_width=True
-        )
-        
         # Gráfico de líneas
         st.subheader("📈 Evolución de demanda durante el día")
         
         fig_lineas = px.line(
-            df_local,
+            df_filtrado,
             x='bloque_30min',
             y='horas_bloque',
-            color='dia',
+            color='día',
             title=f"Evolución horaria de demanda - {area_seleccionada}",
-            labels={'bloque_30min': 'Hora', 'horas_bloque': 'Horas requeridas', 'dia': 'Día'},
-            category_orders={"dia": dias_orden}
+            labels={'bloque_30min': 'Hora', 'horas_bloque': 'Horas requeridas', 'día': 'Día'},
+            category_orders={"día": dias_orden}
         )
         
         fig_lineas.update_layout(
             height=400,
             hovermode='x unified',
-            xaxis=dict(tickangle=45, nticks=20)
+            xaxis=dict(tickangle=45, nticks=25)
         )
         
         st.plotly_chart(fig_lineas, use_container_width=True)
@@ -413,17 +522,17 @@ try:
         # Análisis por franjas
         st.subheader("⏰ Análisis por franjas horarias")
         
-        df_local['hora_num'] = pd.to_datetime(
-            df_local['bloque_30min'], 
+        df_filtrado['hora_num_completa'] = pd.to_datetime(
+            df_filtrado['bloque_30min'], 
             format='%H:%M'
         ).dt.hour + pd.to_datetime(
-            df_local['bloque_30min'], 
+            df_filtrado['bloque_30min'], 
             format='%H:%M'
         ).dt.minute / 60
         
         def asignar_franja(hora):
-            if 6 <= hora < 12:
-                return "Mañana (06:00-12:00)"
+            if 8 <= hora < 12:
+                return "Mañana (08:00-12:00)"
             elif 12 <= hora < 16:
                 return "Mediodía (12:00-16:00)"
             elif 16 <= hora < 20:
@@ -431,13 +540,13 @@ try:
             elif 20 <= hora < 24:
                 return "Noche (20:00-24:00)"
             else:
-                return "Madrugada (00:00-06:00)"
+                return "Madrugada (00:00-02:00)"
         
-        df_local['franja'] = df_local['hora_num'].apply(asignar_franja)
+        df_filtrado['franja'] = df_filtrado['hora_num_completa'].apply(asignar_franja)
         
-        franjas_pivot = df_local.pivot_table(
+        franjas_pivot = df_filtrado.pivot_table(
             index='franja',
-            columns='dia',
+            columns='día',
             values='horas_bloque',
             aggfunc='sum',
             fill_value=0
@@ -447,11 +556,11 @@ try:
         franjas_pivot['Total'] = franjas_pivot.sum(axis=1)
         
         orden_franjas = [
-            "Mañana (06:00-12:00)",
+            "Mañana (08:00-12:00)",
             "Mediodía (12:00-16:00)", 
             "Tarde (16:00-20:00)",
             "Noche (20:00-24:00)",
-            "Madrugada (00:00-06:00)"
+            "Madrugada (00:00-02:00)"
         ]
         
         franjas_pivot = franjas_pivot.reindex(
@@ -469,18 +578,18 @@ try:
         with col1:
             csv_horas = matriz_horas.to_csv(index=True)
             st.download_button(
-                label="⬇️ Distribución detallada",
+                label="⬇️ Distribución horas",
                 data=csv_horas,
                 file_name=f"distribucion_horas_{local}_{area_seleccionada}.csv",
                 mime="text/csv"
             )
         
         with col2:
-            csv_resumen = resumen_df.to_csv(index=False)
+            csv_ventas = matriz_ventas.to_csv(index=True)
             st.download_button(
-                label="⬇️ Resumen por día",
-                data=csv_resumen,
-                file_name=f"resumen_horas_{local}_{area_seleccionada}.csv",
+                label="⬇️ Distribución ventas",
+                data=csv_ventas,
+                file_name=f"distribucion_ventas_{local}.csv",
                 mime="text/csv"
             )
         
@@ -500,4 +609,3 @@ except FileNotFoundError:
     st.error("⚠️ Archivo no encontrado. Por favor, asegúrate de que el archivo data/distribucion_ventas_local.csv existe en tu repositorio.")
 except Exception as e:
     st.error(f"❌ Error al cargar datos: {str(e)}")
-
