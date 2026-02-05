@@ -466,16 +466,15 @@ except FileNotFoundError:
     st.error("""
     ⚠️ **Archivo no encontrado**
     
-    Por favor, asegúrate de que el archivo `data/distribucion_ventas_local.csv` 
+    Por favor, asegúrate de que el archivo data/distribucion_ventas_local.csv 
     existe en tu repositorio con la siguiente estructura:
-```
+    
     local,dia,bloque_30min,porcentaje_ventas
     MERIDIANA,LUNES,12:00,0.0045
     MERIDIANA,LUNES,12:30,0.0067
     ...
-```
     
-    Donde la suma de todos los `porcentaje_ventas` para cada local debe ser ≈ 1.0
+    Donde la suma de todos los porcentaje_ventas para cada local debe ser ≈ 1.0
     """)
 except Exception as e:
     st.error(f"❌ Error al cargar datos: {str(e)}")
