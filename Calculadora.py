@@ -243,6 +243,10 @@ def cargar_distribucion_ventas():
     # Limpiar columnas
     df.columns = df.columns.str.strip()
     
+    # Normalizar nombre de columna día/dia
+    if 'dia' in df.columns:
+        df = df.rename(columns={'dia': 'día'})
+    
     # Convertir porcentaje_ventas a numérico
     df['porcentaje_ventas'] = pd.to_numeric(df['porcentaje_ventas'], errors='coerce').fillna(0)
     
@@ -253,8 +257,12 @@ def cargar_distribucion_ventas():
         'SABADO': 'SÁBADO'
     })
     
-    # Normalizar columna Distribución
-    df['Distribución'] = df['Distribución'].str.strip()
+    # Normalizar columna Distribución (si existe)
+    if 'Distribución' in df.columns:
+        df['Distribución'] = df['Distribución'].str.strip()
+    elif 'Distribucion' in df.columns:
+        df = df.rename(columns={'Distribucion': 'Distribución'})
+        df['Distribución'] = df['Distribución'].str.strip()
     
     return df
 
