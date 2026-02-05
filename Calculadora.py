@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
 
 # --------------------------------------------------
 # CONFIGURACIÓN STREAMLIT
@@ -207,35 +208,32 @@ st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
 # --------------------------------------------------
 # MAPA DE CALOR - DISTRIBUCIÓN DE HORAS
 # --------------------------------------------------
-import plotly.express as px
-
 st.markdown("---")
 st.header("📊 Distribución Teórica de Horas por Bloques de 30 min")
 
+# Cargar distribución de ventas
 @st.cache_data
 def cargar_distribucion_ventas():
     # Intentar leer con diferentes separadores
     try:
-        # Primero intentar con punto y coma
         df = pd.read_csv('data/distribucion_ventas_local.csv', sep=';')
     except:
         try:
-            # Luego intentar con tabulación
             df = pd.read_csv('data/distribucion_ventas_local.csv', sep='\t')
         except:
-            # Finalmente intentar con coma
             df = pd.read_csv('data/distribucion_ventas_local.csv', sep=',')
     
-    # Convertir bloque_30min a formato HH:MM (sin segundos)
+    # Convertir bloque_30min a formato HH:MM
     df['bloque_30min'] = pd.to_datetime(df['bloque_30min'], format='%H:%M:%S').dt.strftime('%H:%M')
     
-    # Asegurar que las columnas estén limpias
+    # Limpiar columnas
     df.columns = df.columns.str.strip()
     
-    # Convertir porcentaje_ventas a numérico (por si viene como texto)
+    # Convertir porcentaje_ventas a numérico
     df['porcentaje_ventas'] = pd.to_numeric(df['porcentaje_ventas'], errors='coerce').fillna(0)
     
     return df
+
 try:
     df_distribucion = cargar_distribucion_ventas()
     
@@ -243,17 +241,17 @@ try:
     df_local = df_distribucion[df_distribucion['local'] == local].copy()
     
     if len(df_local) > 0:
-        # Verificar que la suma sea aproximadamente 1
+        # Verificar suma
         suma_total = df_local['porcentaje_ventas'].sum()
         st.caption(f"ℹ️ Suma de distribución semanal: {suma_total:.4f} (debe ser ≈ 1.0)")
         
-        # Crear selector de área
+        # Selector de área
         area_seleccionada = st.selectbox(
             "Selecciona área para visualizar",
             ["SALA", "COCINA"]
         )
         
-        # Obtener horas totales semanales según área
+        # Obtener horas semanales
         if area_seleccionada == "SALA":
             horas_semanales = tabla_horas_sala.sum(axis=1).values[0]
         else:
@@ -261,10 +259,10 @@ try:
         
         st.info(f"**Horas semanales totales ({area_seleccionada}):** {horas_semanales:.2f} horas")
         
-        # Multiplicar directamente: cada % * horas_semanales
+        # Calcular horas por bloque
         df_local['horas_bloque'] = df_local['porcentaje_ventas'] * horas_semanales
         
-        # Crear matriz pivote: bloques (filas) x días (columnas)
+        # Crear matriz pivote
         matriz_horas = df_local.pivot_table(
             index='bloque_30min',
             columns='dia',
@@ -272,17 +270,17 @@ try:
             fill_value=0
         )
         
-        # Asegurar orden de días
+        # Ordenar días
         dias_orden = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
         matriz_horas = matriz_horas.reindex(columns=dias_orden, fill_value=0)
         
-        # Verificación: la suma de todas las celdas debe ser igual a horas_semanales
+        # Verificación
         suma_matriz = matriz_horas.sum().sum()
         st.caption(f"✅ Verificación: Suma de horas distribuidas = {suma_matriz:.2f} horas")
         
         # Crear mapa de calor
         fig = px.imshow(
-            matriz_horas.T,  # Transponer para tener días en el eje Y
+            matriz_horas.T,
             labels=dict(x="Bloque de 30 min", y="Día", color="Horas"),
             x=matriz_horas.index,
             y=matriz_horas.columns,
@@ -291,21 +289,20 @@ try:
             title=f"Distribución de Horas - {area_seleccionada} ({local})"
         )
         
-        # Mejorar visualización
-        fig.update_xaxis(
-            side="bottom",
-            tickangle=45,
-            tickmode='auto',
-            nticks=20
-        )
-        
+        # Configurar ejes
         fig.update_layout(
             height=500,
             xaxis_title="Hora del día",
-            yaxis_title="Día de la semana"
+            yaxis_title="Día de la semana",
+            xaxis=dict(
+                side="bottom",
+                tickangle=45,
+                tickmode='auto',
+                nticks=20
+            )
         )
         
-        # Añadir anotaciones de valores en celdas con más horas
+        # Añadir valores en celdas
         fig.update_traces(
             text=matriz_horas.T.round(1),
             texttemplate="%{text}",
@@ -315,7 +312,7 @@ try:
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Tabla resumen por día
+        # Resumen por día
         st.subheader("📋 Resumen de horas por día")
         
         horas_por_dia = matriz_horas.sum(axis=0)
@@ -326,7 +323,6 @@ try:
             "% del total semanal": (horas_por_dia.values / horas_semanales * 100)
         })
         
-        # Añadir fila de total
         total_row = pd.DataFrame({
             "Día": ["TOTAL SEMANA"],
             "Horas requeridas": [horas_por_dia.sum()],
@@ -342,10 +338,9 @@ try:
             use_container_width=True
         )
         
-        # Identificar bloques de mayor demanda
+        # Top 10 bloques
         st.subheader("🔥 Top 10 Bloques de Mayor Demanda")
         
-        # Convertir matriz a formato largo
         matriz_long = matriz_horas.stack().reset_index()
         matriz_long.columns = ['Bloque', 'Día', 'Horas']
         matriz_long = matriz_long.sort_values('Horas', ascending=False).head(10)
@@ -355,7 +350,7 @@ try:
             use_container_width=True
         )
         
-        # Gráfico de líneas por día
+        # Gráfico de líneas
         st.subheader("📈 Evolución de demanda durante el día")
         
         fig_lineas = px.line(
@@ -368,12 +363,15 @@ try:
             category_orders={"dia": dias_orden}
         )
         
-        fig_lineas.update_xaxis(tickangle=45, nticks=20)
-        fig_lineas.update_layout(height=400, hovermode='x unified')
+        fig_lineas.update_layout(
+            height=400,
+            hovermode='x unified',
+            xaxis=dict(tickangle=45, nticks=20)
+        )
         
         st.plotly_chart(fig_lineas, use_container_width=True)
         
-        # Gráfico de barras por día
+        # Gráfico de barras
         st.subheader("📊 Comparativa de horas por día")
         
         fig_barras = px.bar(
@@ -391,10 +389,9 @@ try:
         
         st.plotly_chart(fig_barras, use_container_width=True)
         
-        # Análisis de franjas horarias
+        # Análisis por franjas
         st.subheader("⏰ Análisis por franjas horarias")
         
-        # Crear columna de hora numérica
         df_local['hora_num'] = pd.to_datetime(
             df_local['bloque_30min'], 
             format='%H:%M'
@@ -403,7 +400,6 @@ try:
             format='%H:%M'
         ).dt.minute / 60
         
-        # Definir franjas
         def asignar_franja(hora):
             if 6 <= hora < 12:
                 return "Mañana (06:00-12:00)"
@@ -418,7 +414,6 @@ try:
         
         df_local['franja'] = df_local['hora_num'].apply(asignar_franja)
         
-        # Agrupar por franja y día
         franjas_pivot = df_local.pivot_table(
             index='franja',
             columns='dia',
@@ -430,7 +425,6 @@ try:
         franjas_pivot = franjas_pivot.reindex(columns=dias_orden, fill_value=0)
         franjas_pivot['Total'] = franjas_pivot.sum(axis=1)
         
-        # Ordenar franjas lógicamente
         orden_franjas = [
             "Mañana (06:00-12:00)",
             "Mediodía (12:00-16:00)", 
@@ -445,7 +439,7 @@ try:
         
         st.dataframe(franjas_pivot.round(2), use_container_width=True)
         
-        # Opción de descarga
+        # Exportar
         st.markdown("---")
         st.subheader("💾 Exportar datos")
         
