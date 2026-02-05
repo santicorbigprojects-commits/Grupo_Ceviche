@@ -44,6 +44,8 @@ if st.button("Calcular"):
         "Monto (€)": [venta_diaria, venta_sala, venta_glovo]
     })
 
-    st.table(ventas_df.style.format("{:.2f}"))
+    ventas_df["Monto (€)"] = ventas_df["Monto (€)"].round(2)
+    st.table(ventas_df)
+
 
     st.success("App conectada correctamente 🚀")
