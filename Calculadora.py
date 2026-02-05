@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 
 # --------------------------------------------------
 # CONFIGURACIÓN STREAMLIT
@@ -135,7 +136,7 @@ else:
     factor_cocina = 0
 
 # --------------------------------------------------
-# CÁLCULO PRODUCTIVIDAD SALA
+# CÁLCULO PRODUCTIVIDAD AJUSTADA (para cálculo interno)
 # --------------------------------------------------
 prod_sala = []
 
@@ -155,9 +156,6 @@ tabla_sala = pd.DataFrame(
     columns=dias
 )
 
-# --------------------------------------------------
-# CÁLCULO PRODUCTIVIDAD COCINA
-# --------------------------------------------------
 prod_cocina = []
 
 for d in dias:
@@ -183,9 +181,25 @@ tabla_cocina = pd.DataFrame(
 tabla_horas_sala = venta_sala / tabla_sala
 tabla_horas_cocina = venta_diaria / tabla_cocina
 
-# Renombrar índices
 tabla_horas_sala.index = [f"HORAS {tipo_productividad}"]
 tabla_horas_cocina.index = [f"HORAS {tipo_productividad}"]
+
+# --------------------------------------------------
+# CÁLCULO PRODUCTIVIDAD EFECTIVA
+# --------------------------------------------------
+# Suma de horas por día
+horas_sala_por_dia_simple = tabla_horas_sala.iloc[0].values
+horas_cocina_por_dia_simple = tabla_horas_cocina.iloc[0].values
+horas_totales_por_dia_simple = horas_sala_por_dia_simple + horas_cocina_por_dia_simple
+
+# Productividad efectiva por día
+productividad_efectiva_simple = venta_diaria / horas_totales_por_dia_simple
+
+tabla_productividad_efectiva = pd.DataFrame(
+    [productividad_efectiva_simple],
+    index=["PRODUCTIVIDAD EFECTIVA (€/h)"],
+    columns=dias
+)
 
 # --------------------------------------------------
 # OUTPUTS - TABLAS PRINCIPALES
@@ -194,17 +208,9 @@ st.header("💰 Ventas diarias")
 st.dataframe(ventas_df.round(2), use_container_width=True)
 
 st.markdown("---")
-st.header("📊 Productividad Teórica")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("🍽️ SALA")
-    st.dataframe(tabla_sala.round(2), use_container_width=True)
-
-with col2:
-    st.subheader("👨‍🍳 COCINA")
-    st.dataframe(tabla_cocina.round(2), use_container_width=True)
+st.header("💼 Productividad Efectiva")
+st.info("**Productividad Efectiva** = Ventas del día / (Horas Sala + Horas Cocina)")
+st.dataframe(tabla_productividad_efectiva.round(2), use_container_width=True)
 
 st.markdown("---")
 st.header("⏰ Horas Teóricas")
@@ -228,7 +234,6 @@ st.header("📊 Distribución Teórica de Horas por Bloques de 30 min")
 # Cargar distribución de ventas
 @st.cache_data
 def cargar_distribucion_ventas():
-    # Intentar leer con diferentes separadores
     try:
         df = pd.read_csv('data/distribucion_ventas_local.csv', sep=';')
     except:
@@ -237,27 +242,20 @@ def cargar_distribucion_ventas():
         except:
             df = pd.read_csv('data/distribucion_ventas_local.csv', sep=',')
     
-    # Convertir bloque_30min a formato HH:MM
     df['bloque_30min'] = pd.to_datetime(df['bloque_30min'], format='%H:%M:%S').dt.strftime('%H:%M')
-    
-    # Limpiar columnas
     df.columns = df.columns.str.strip()
     
-    # Normalizar nombre de columna día/dia
     if 'dia' in df.columns:
         df = df.rename(columns={'dia': 'día'})
     
-    # Convertir porcentaje_ventas a numérico
     df['porcentaje_ventas'] = pd.to_numeric(df['porcentaje_ventas'], errors='coerce').fillna(0)
     
-    # NORMALIZAR NOMBRES DE DÍAS (agregar tildes)
     df['día'] = df['día'].str.strip().str.upper()
     df['día'] = df['día'].replace({
         'MIERCOLES': 'MIÉRCOLES',
         'SABADO': 'SÁBADO'
     })
     
-    # Normalizar columna Distribución (si existe)
     if 'Distribución' in df.columns:
         df['Distribución'] = df['Distribución'].str.strip()
     elif 'Distribucion' in df.columns:
@@ -267,30 +265,22 @@ def cargar_distribucion_ventas():
     return df
 
 def ordenar_bloques_horarios(bloques):
-    """
-    Ordena los bloques poniendo los de 8:00-23:30 primero,
-    luego 0:00-1:30 al final
-    """
-    # Convertir a datetime para ordenar
     bloques_dt = pd.to_datetime(bloques, format='%H:%M')
-    
-    # Separar bloques
-    bloques_dia = []  # 8:00 - 23:30
-    bloques_noche = []  # 0:00 - 1:30
+    bloques_dia = []
+    bloques_noche = []
     
     for i, bloque in enumerate(bloques):
         hora = bloques_dt[i].hour
-        if 2 <= hora < 8:  # Filtrar 2:00-7:30 (no hay ventas)
+        if 2 <= hora < 8:
             continue
-        elif hora >= 8 or hora == 0:  # 8:00-23:30 o 0:00
+        elif hora >= 8 or hora == 0:
             if hora >= 8:
                 bloques_dia.append(bloque)
-            else:  # 0:00-1:30
+            else:
                 bloques_noche.append(bloque)
-        elif hora == 1:  # 1:00-1:30
+        elif hora == 1:
             bloques_noche.append(bloque)
     
-    # Ordenar cada grupo
     bloques_dia_sorted = sorted(bloques_dia, key=lambda x: pd.to_datetime(x, format='%H:%M'))
     bloques_noche_sorted = sorted(bloques_noche, key=lambda x: pd.to_datetime(x, format='%H:%M'))
     
@@ -298,47 +288,34 @@ def ordenar_bloques_horarios(bloques):
 
 try:
     df_distribucion = cargar_distribucion_ventas()
-    
-    # Filtrar por local
     df_local = df_distribucion[df_distribucion['local'] == local].copy()
     
     if len(df_local) > 0:
-        # Selector de área
         area_seleccionada = st.selectbox(
             "Selecciona área para visualizar",
             ["SALA", "COCINA"]
         )
         
-        # Seleccionar tipo de distribución según área
         if area_seleccionada == "SALA":
             tipo_distribucion = "local"
             horas_semanales = tabla_horas_sala.sum(axis=1).values[0]
-        else:  # COCINA
+        else:
             tipo_distribucion = "glovo&local"
             horas_semanales = tabla_horas_cocina.sum(axis=1).values[0]
         
-        # Filtrar por tipo de distribución
         df_filtrado = df_local[df_local['Distribución'] == tipo_distribucion].copy()
         
-        # Verificar suma
         suma_total = df_filtrado['porcentaje_ventas'].sum()
         st.caption(f"ℹ️ Suma de distribución semanal ({tipo_distribucion}): {suma_total:.4f} (debe ser ≈ 1.0)")
-        
         st.info(f"**Horas semanales totales ({area_seleccionada}):** {horas_semanales:.2f} horas")
         
-        # ==========================================
         # MAPA DE CALOR 1: DISTRIBUCIÓN DE HORAS
-        # ==========================================
         st.subheader("🕐 Distribución de Horas Requeridas")
         
-        # Calcular horas por bloque
         df_filtrado['horas_bloque'] = df_filtrado['porcentaje_ventas'] * horas_semanales
-        
-        # Filtrar bloques entre 2:00-7:59 (excluir horas sin ventas)
         df_filtrado['hora_num'] = pd.to_datetime(df_filtrado['bloque_30min'], format='%H:%M').dt.hour
         df_filtrado = df_filtrado[~((df_filtrado['hora_num'] >= 2) & (df_filtrado['hora_num'] < 8))].copy()
         
-        # Crear matriz pivote
         matriz_horas = df_filtrado.pivot_table(
             index='bloque_30min',
             columns='día',
@@ -346,19 +323,15 @@ try:
             fill_value=0
         )
         
-        # Ordenar días
         dias_orden = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
         matriz_horas = matriz_horas.reindex(columns=dias_orden, fill_value=0)
         
-        # Reordenar bloques (8:00-23:30, luego 0:00-1:30)
         bloques_ordenados = ordenar_bloques_horarios(matriz_horas.index.tolist())
         matriz_horas = matriz_horas.reindex(bloques_ordenados)
         
-        # Verificación
         suma_matriz = matriz_horas.sum().sum()
         st.caption(f"✅ Verificación: Suma de horas distribuidas = {suma_matriz:.2f} horas")
         
-        # Crear mapa de calor
         fig = px.imshow(
             matriz_horas.T,
             labels=dict(x="Bloque de 30 min", y="Día", color="Horas"),
@@ -369,20 +342,13 @@ try:
             title=f"Distribución de Horas - {area_seleccionada} ({local})"
         )
         
-        # Configurar ejes
         fig.update_layout(
             height=500,
             xaxis_title="Hora del día",
             yaxis_title="Día de la semana",
-            xaxis=dict(
-                side="bottom",
-                tickangle=45,
-                tickmode='auto',
-                nticks=25
-            )
+            xaxis=dict(side="bottom", tickangle=45, tickmode='auto', nticks=25)
         )
         
-        # Añadir valores en celdas
         fig.update_traces(
             text=matriz_horas.T.round(1),
             texttemplate="%{text}",
@@ -392,24 +358,16 @@ try:
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # ==========================================
         # MAPA DE CALOR 2: DISTRIBUCIÓN DE VENTAS
-        # ==========================================
         st.markdown("---")
         st.subheader("💰 Distribución Promedio de Ventas Semanales")
         
-        # Filtrar distribución glovo&local para ventas
         df_ventas = df_local[df_local['Distribución'] == "glovo&local"].copy()
-        
-        # Calcular ventas por bloque
         venta_semanal = venta_diaria * 7
         df_ventas['venta_bloque'] = df_ventas['porcentaje_ventas'] * venta_semanal
-        
-        # Filtrar bloques entre 2:00-7:59
         df_ventas['hora_num'] = pd.to_datetime(df_ventas['bloque_30min'], format='%H:%M').dt.hour
         df_ventas = df_ventas[~((df_ventas['hora_num'] >= 2) & (df_ventas['hora_num'] < 8))].copy()
         
-        # Crear matriz pivote
         matriz_ventas = df_ventas.pivot_table(
             index='bloque_30min',
             columns='día',
@@ -417,14 +375,10 @@ try:
             fill_value=0
         )
         
-        # Ordenar días
         matriz_ventas = matriz_ventas.reindex(columns=dias_orden, fill_value=0)
-        
-        # Reordenar bloques
         bloques_ordenados_ventas = ordenar_bloques_horarios(matriz_ventas.index.tolist())
         matriz_ventas = matriz_ventas.reindex(bloques_ordenados_ventas)
         
-        # Crear mapa de calor de ventas
         fig_ventas = px.imshow(
             matriz_ventas.T,
             labels=dict(x="Bloque de 30 min", y="Día", color="Ventas (€)"),
@@ -435,20 +389,13 @@ try:
             title=f"Distribución Promedio de Ventas Semanales ({local})"
         )
         
-        # Configurar ejes
         fig_ventas.update_layout(
             height=500,
             xaxis_title="Hora del día",
             yaxis_title="Día de la semana",
-            xaxis=dict(
-                side="bottom",
-                tickangle=45,
-                tickmode='auto',
-                nticks=25
-            )
+            xaxis=dict(side="bottom", tickangle=45, tickmode='auto', nticks=25)
         )
         
-        # Añadir valores en celdas
         fig_ventas.update_traces(
             text=matriz_ventas.T.round(0),
             texttemplate="€%{text}",
@@ -458,15 +405,10 @@ try:
         
         st.plotly_chart(fig_ventas, use_container_width=True)
         
-        # ==========================================
-        # RESÚMENES Y ANÁLISIS
-        # ==========================================
-        
-        # Resumen por día
+        # RESÚMENES
         st.subheader("📋 Resumen de horas por día")
         
         horas_por_dia = matriz_horas.sum(axis=0)
-        
         resumen_df = pd.DataFrame({
             "Día": dias_orden,
             "Horas requeridas": horas_por_dia.values,
@@ -577,6 +519,146 @@ try:
         
         st.dataframe(franjas_pivot.round(2), use_container_width=True)
         
+        # PRODUCTIVIDAD EFECTIVA DETALLADA
+        st.markdown("---")
+        st.header("💼 Productividad Efectiva Detallada por Día")
+        
+        st.info("""
+        **Productividad Efectiva** = Ventas del día / (Horas Sala + Horas Cocina)
+        
+        Esta métrica muestra cuántos euros se generan por cada hora trabajada total.
+        """)
+        
+        # Obtener datos de ambas áreas
+        if area_seleccionada == "SALA":
+            tipo_distribucion_cocina = "glovo&local"
+            horas_semanales_cocina = tabla_horas_cocina.sum(axis=1).values[0]
+            
+            df_cocina = df_local[df_local['Distribución'] == tipo_distribucion_cocina].copy()
+            df_cocina['horas_bloque'] = df_cocina['porcentaje_ventas'] * horas_semanales_cocina
+            df_cocina['hora_num'] = pd.to_datetime(df_cocina['bloque_30min'], format='%H:%M').dt.hour
+            df_cocina = df_cocina[~((df_cocina['hora_num'] >= 2) & (df_cocina['hora_num'] < 8))].copy()
+            
+            matriz_horas_cocina = df_cocina.pivot_table(
+                index='bloque_30min',
+                columns='día',
+                values='horas_bloque',
+                fill_value=0
+            )
+            matriz_horas_cocina = matriz_horas_cocina.reindex(columns=dias_orden, fill_value=0)
+            
+            horas_sala_por_dia = matriz_horas.sum(axis=0)
+            horas_cocina_por_dia = matriz_horas_cocina.sum(axis=0)
+        else:
+            tipo_distribucion_sala = "local"
+            horas_semanales_sala = tabla_horas_sala.sum(axis=1).values[0]
+            
+            df_sala = df_local[df_local['Distribución'] == tipo_distribucion_sala].copy()
+            df_sala['horas_bloque'] = df_sala['porcentaje_ventas'] * horas_semanales_sala
+            df_sala['hora_num'] = pd.to_datetime(df_sala['bloque_30min'], format='%H:%M').dt.hour
+            df_sala = df_sala[~((df_sala['hora_num'] >= 2) & (df_sala['hora_num'] < 8))].copy()
+            
+            matriz_horas_sala = df_sala.pivot_table(
+                index='bloque_30min',
+                columns='día',
+                values='horas_bloque',
+                fill_value=0
+            )
+            matriz_horas_sala = matriz_horas_sala.reindex(columns=dias_orden, fill_value=0)
+            
+            horas_sala_por_dia = matriz_horas_sala.sum(axis=0)
+            horas_cocina_por_dia = matriz_horas.sum(axis=0)
+        
+        ventas_por_dia = matriz_ventas.sum(axis=0)
+        horas_totales_por_dia = horas_sala_por_dia + horas_cocina_por_dia
+        productividad_efectiva = ventas_por_dia / horas_totales_por_dia
+        
+        productividad_df = pd.DataFrame({
+            "Día": dias_orden,
+            "Ventas (€)": ventas_por_dia.values,
+            "Horas Sala": horas_sala_por_dia.values,
+            "Horas Cocina": horas_cocina_por_dia.values,
+            "Horas Totales": horas_totales_por_dia.values,
+            "Productividad Efectiva (€/h)": productividad_efectiva.values
+        })
+        
+        total_ventas = ventas_por_dia.sum()
+        total_horas_sala = horas_sala_por_dia.sum()
+        total_horas_cocina = horas_cocina_por_dia.sum()
+        total_horas = horas_totales_por_dia.sum()
+        productividad_efectiva_promedio = total_ventas / total_horas
+        
+        total_row_prod = pd.DataFrame({
+            "Día": ["PROMEDIO SEMANAL"],
+            "Ventas (€)": [total_ventas / 7],
+            "Horas Sala": [total_horas_sala / 7],
+            "Horas Cocina": [total_horas_cocina / 7],
+            "Horas Totales": [total_horas / 7],
+            "Productividad Efectiva (€/h)": [productividad_efectiva_promedio]
+        })
+        
+        productividad_df = pd.concat([productividad_df, total_row_prod], ignore_index=True)
+        
+        st.dataframe(
+            productividad_df.style.format({
+                "Ventas (€)": "€{:.2f}",
+                "Horas Sala": "{:.2f}",
+                "Horas Cocina": "{:.2f}",
+                "Horas Totales": "{:.2f}",
+                "Productividad Efectiva (€/h)": "€{:.2f}"
+            }),
+            use_container_width=True
+        )
+        
+        st.subheader("📈 Productividad Efectiva por Día")
+        
+        fig_prod = px.bar(
+            productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL'],
+            x="Día",
+            y="Productividad Efectiva (€/h)",
+            title="Productividad Efectiva por Día de la Semana",
+            color="Productividad Efectiva (€/h)",
+            color_continuous_scale="RdYlGn",
+            text="Productividad Efectiva (€/h)"
+        )
+        
+        fig_prod.update_traces(texttemplate='€%{text:.2f}', textposition='outside')
+        fig_prod.update_layout(height=400)
+        
+        st.plotly_chart(fig_prod, use_container_width=True)
+        
+        st.subheader("📊 Comparativa: Horas vs Ventas por Día")
+        
+        fig_comparativa = go.Figure()
+        
+        fig_comparativa.add_trace(go.Bar(
+            name='Horas Totales',
+            x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
+            y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Horas Totales'],
+            yaxis='y',
+            marker_color='lightblue'
+        ))
+        
+        fig_comparativa.add_trace(go.Scatter(
+            name='Ventas',
+            x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
+            y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Ventas (€)'],
+            yaxis='y2',
+            marker_color='green',
+            line=dict(width=3)
+        ))
+        
+        fig_comparativa.update_layout(
+            title='Relación entre Horas Trabajadas y Ventas',
+            xaxis=dict(title='Día'),
+            yaxis=dict(title='Horas Totales', side='left'),
+            yaxis2=dict(title='Ventas (€)', overlaying='y', side='right'),
+            height=400,
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_comparativa, use_container_width=True)
+        
         # Exportar
         st.markdown("---")
         st.subheader("💾 Exportar datos")
@@ -602,11 +684,11 @@ try:
             )
         
         with col3:
-            csv_franjas = franjas_pivot.to_csv(index=True)
+            csv_prod = productividad_df.to_csv(index=False)
             st.download_button(
-                label="⬇️ Análisis por franjas",
-                data=csv_franjas,
-                file_name=f"franjas_horas_{local}_{area_seleccionada}.csv",
+                label="⬇️ Productividad efectiva",
+                data=csv_prod,
+                file_name=f"productividad_efectiva_{local}.csv",
                 mime="text/csv"
             )
     
@@ -614,171 +696,6 @@ try:
         st.warning(f"⚠️ No hay datos de distribución disponibles para {local}")
 
 except FileNotFoundError:
-    st.error("⚠️ Archivo no encontrado. Por favor, asegúrate de que el archivo data/distribucion_ventas_local.csv existe en tu repositorio.")
+    st.error("⚠️ Archivo no encontrado. Asegúrate de que data/distribucion_ventas_local.csv existe.")
 except Exception as e:
-    st.error(f"❌ Error al cargar datos: {str(e)}")
-# ==========================================
-# PRODUCTIVIDAD EFECTIVA POR DÍA
-# ==========================================
-st.markdown("---")
-st.header("💼 Productividad Efectiva por Día")
-        
-st.info("""
-**Productividad Efectiva** = Ventas del día / (Horas Sala + Horas Cocina)
-        
-Esta métrica muestra cuántos euros se generan por cada hora trabajada total (sala + cocina).
-""")
-        
-# Calcular acumulados por día para SALA
-horas_sala_por_dia = matriz_horas.sum(axis=0) if area_seleccionada == "SALA" else None
-        
-# Necesitamos calcular también para el otro área
-# Obtener datos de la otra área
-if area_seleccionada == "SALA":
-    # Necesitamos datos de COCINA
-    tipo_distribucion_cocina = "glovo&local"
-    horas_semanales_cocina = tabla_horas_cocina.sum(axis=1).values[0]
-            
-    df_cocina = df_local[df_local['Distribución'] == tipo_distribucion_cocina].copy()
-    df_cocina['horas_bloque'] = df_cocina['porcentaje_ventas'] * horas_semanales_cocina
-    df_cocina['hora_num'] = pd.to_datetime(df_cocina['bloque_30min'], format='%H:%M').dt.hour
-    df_cocina = df_cocina[~((df_cocina['hora_num'] >= 2) & (df_cocina['hora_num'] < 8))].copy()
-            
-    matriz_horas_cocina = df_cocina.pivot_table(
-        index='bloque_30min',
-        columns='día',
-        values='horas_bloque',
-        fill_value=0
-    )
-    matriz_horas_cocina = matriz_horas_cocina.reindex(columns=dias_orden, fill_value=0)
-            
-    horas_sala_por_dia = matriz_horas.sum(axis=0)
-    horas_cocina_por_dia = matriz_horas_cocina.sum(axis=0)
-else:
-     # Necesitamos datos de SALA
-    tipo_distribucion_sala = "local"
-    horas_semanales_sala = tabla_horas_sala.sum(axis=1).values[0]
-            
-    df_sala = df_local[df_local['Distribución'] == tipo_distribucion_sala].copy()
-    df_sala['horas_bloque'] = df_sala['porcentaje_ventas'] * horas_semanales_sala
-    df_sala['hora_num'] = pd.to_datetime(df_sala['bloque_30min'], format='%H:%M').dt.hour
-    df_sala = df_sala[~((df_sala['hora_num'] >= 2) & (df_sala['hora_num'] < 8))].copy()
-            
-    matriz_horas_sala = df_sala.pivot_table(
-        index='bloque_30min',
-        columns='día',
-        values='horas_bloque',
-        fill_value=0
-    )
-    matriz_horas_sala = matriz_horas_sala.reindex(columns=dias_orden, fill_value=0)
-            
-    horas_sala_por_dia = matriz_horas_sala.sum(axis=0)
-    horas_cocina_por_dia = matriz_horas.sum(axis=0)
-        
-# Calcular ventas por día desde matriz_ventas
-ventas_por_dia = matriz_ventas.sum(axis=0)
-        
-# Calcular productividad efectiva
-horas_totales_por_dia = horas_sala_por_dia + horas_cocina_por_dia
-productividad_efectiva = ventas_por_dia / horas_totales_por_dia
-        
-# Crear DataFrame resumen
-productividad_df = pd.DataFrame({
-    "Día": dias_orden,
-    "Ventas (€)": ventas_por_dia.values,
-    "Horas Sala": horas_sala_por_dia.values,
-    "Horas Cocina": horas_cocina_por_dia.values,
-    "Horas Totales": horas_totales_por_dia.values,
-    "Productividad Efectiva (€/h)": productividad_efectiva.values
-})
-        
-# Añadir fila de TOTAL/PROMEDIO
-total_ventas = ventas_por_dia.sum()
-total_horas_sala = horas_sala_por_dia.sum()
-total_horas_cocina = horas_cocina_por_dia.sum()
-total_horas = horas_totales_por_dia.sum()
-productividad_efectiva_promedio = total_ventas / total_horas
-        
-total_row_prod = pd.DataFrame({
-    "Día": ["PROMEDIO SEMANAL"],
-    "Ventas (€)": [total_ventas / 7],
-    "Horas Sala": [total_horas_sala / 7],
-    "Horas Cocina": [total_horas_cocina / 7],
-    "Horas Totales": [total_horas / 7],
-    "Productividad Efectiva (€/h)": [productividad_efectiva_promedio]
-})
-        
-productividad_df = pd.concat([productividad_df, total_row_prod], ignore_index=True)
-        
-# Mostrar tabla con estilo
-st.dataframe(
-    productividad_df.style.format({
-        "Ventas (€)": "€{:.2f}",
-        "Horas Sala": "{:.2f}",
-        "Horas Cocina": "{:.2f}",
-        "Horas Totales": "{:.2f}",
-        "Productividad Efectiva (€/h)": "€{:.2f}"
-    }).background_gradient(subset=["Productividad Efectiva (€/h)"], cmap="RdYlGn"),
-    use_container_width=True
-)
-        
-# Gráfico de productividad efectiva
-st.subheader("📈 Productividad Efectiva por Día")
-        
-fig_prod = px.bar(
-    productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL'],
-    x="Día",
-    y="Productividad Efectiva (€/h)",
-    title="Productividad Efectiva por Día de la Semana",
-    color="Productividad Efectiva (€/h)",
-    color_continuous_scale="RdYlGn",
-    text="Productividad Efectiva (€/h)"
-)
-        
-fig_prod.update_traces(texttemplate='€%{text:.2f}', textposition='outside')
-fig_prod.update_layout(height=400)
-        
-st.plotly_chart(fig_prod, use_container_width=True)
-        
-# Comparativa visual
-st.subheader("📊 Comparativa: Horas vs Ventas por Día")
-        
-fig_comparativa = go.Figure()
-        
-# Barras de horas totales
-fig_comparativa.add_trace(go.Bar(
-    name='Horas Totales',
-    x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
-    y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Horas Totales'],
-    yaxis='y',
-    marker_color='lightblue'
-))
-        
-# Línea de ventas
-fig_comparativa.add_trace(go.Scatter(
-    name='Ventas',
-    x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
-    y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Ventas (€)'],
-    yaxis='y2',
-    marker_color='green',
-    line=dict(width=3)
-))
-        
-# Configurar ejes
-fig_comparativa.update_layout(
-    title='Relación entre Horas Trabajadas y Ventas',
-    xaxis=dict(title='Día'),
-    yaxis=dict(
-        title='Horas Totales',
-        side='left'
-    ),
-    yaxis2=dict(
-        title='Ventas (€)',
-        overlaying='y',
-        side='right'
-    ),
-    height=400,
-    hovermode='x unified'
-)
-        
-st.plotly_chart(fig_comparativa, use_container_width=True)
+    st.error(f"❌ Error: {str(e)}")
