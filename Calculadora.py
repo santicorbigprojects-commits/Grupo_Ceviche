@@ -188,6 +188,271 @@ tabla_horas_sala.index = [f"HORAS {tipo_productividad}"]
 tabla_horas_cocina.index = [f"HORAS {tipo_productividad}"]
 
 # --------------------------------------------------
+# MAPA DE CALOR - DISTRIBUCIÓN DE HORAS
+# --------------------------------------------------
+import plotly.express as px
+
+st.markdown("---")
+st.header("📊 Distribución Teórica de Horas por Bloques de 30 min")
+
+# Cargar distribución de ventas
+@st.cache_data
+def cargar_distribucion_ventas():
+    return pd.read_csv('data/distribucion_ventas_local.csv')
+
+try:
+    df_distribucion = cargar_distribucion_ventas()
+    
+    # Filtrar por local
+    df_local = df_distribucion[df_distribucion['local'] == local].copy()
+    
+    if len(df_local) > 0:
+        # Verificar que la suma sea aproximadamente 1
+        suma_total = df_local['porcentaje_ventas'].sum()
+        st.caption(f"ℹ️ Suma de distribución semanal: {suma_total:.4f} (debe ser ≈ 1.0)")
+        
+        # Crear selector de área
+        area_seleccionada = st.selectbox(
+            "Selecciona área para visualizar",
+            ["SALA", "COCINA"]
+        )
+        
+        # Obtener horas totales semanales según área
+        if area_seleccionada == "SALA":
+            horas_semanales = tabla_horas_sala.sum(axis=1).values[0]
+        else:
+            horas_semanales = tabla_horas_cocina.sum(axis=1).values[0]
+        
+        st.info(f"**Horas semanales totales ({area_seleccionada}):** {horas_semanales:.2f} horas")
+        
+        # Multiplicar directamente: cada % * horas_semanales
+        df_local['horas_bloque'] = df_local['porcentaje_ventas'] * horas_semanales
+        
+        # Crear matriz pivote: bloques (filas) x días (columnas)
+        matriz_horas = df_local.pivot_table(
+            index='bloque_30min',
+            columns='dia',
+            values='horas_bloque',
+            fill_value=0
+        )
+        
+        # Asegurar orden de días
+        dias_orden = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
+        matriz_horas = matriz_horas.reindex(columns=dias_orden, fill_value=0)
+        
+        # Verificación: la suma de todas las celdas debe ser igual a horas_semanales
+        suma_matriz = matriz_horas.sum().sum()
+        st.caption(f"✅ Verificación: Suma de horas distribuidas = {suma_matriz:.2f} horas")
+        
+        # Crear mapa de calor
+        fig = px.imshow(
+            matriz_horas.T,  # Transponer para tener días en el eje Y
+            labels=dict(x="Bloque de 30 min", y="Día", color="Horas"),
+            x=matriz_horas.index,
+            y=matriz_horas.columns,
+            color_continuous_scale="YlOrRd",
+            aspect="auto",
+            title=f"Distribución de Horas - {area_seleccionada} ({local})"
+        )
+        
+        # Mejorar visualización
+        fig.update_xaxis(
+            side="bottom",
+            tickangle=45,
+            tickmode='auto',
+            nticks=20  # Ajustar número de etiquetas según densidad
+        )
+        
+        fig.update_layout(
+            height=500,
+            xaxis_title="Hora del día",
+            yaxis_title="Día de la semana"
+        )
+        
+        # Añadir anotaciones de valores en celdas con más horas (opcional)
+        fig.update_traces(
+            text=matriz_horas.T.round(1),
+            texttemplate="%{text}",
+            textfont={"size": 8},
+            hovertemplate='Día: %{y}<br>Hora: %{x}<br>Horas: %{z:.2f}<extra></extra>'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabla resumen por día
+        st.subheader("📋 Resumen de horas por día")
+        
+        horas_por_dia = matriz_horas.sum(axis=0)
+        
+        resumen_df = pd.DataFrame({
+            "Día": dias_orden,
+            "Horas requeridas": horas_por_dia.values,
+            "% del total semanal": (horas_por_dia.values / horas_semanales * 100)
+        })
+        
+        # Añadir fila de total
+        total_row = pd.DataFrame({
+            "Día": ["TOTAL SEMANA"],
+            "Horas requeridas": [horas_por_dia.sum()],
+            "% del total semanal": [100.0]
+        })
+        resumen_df = pd.concat([resumen_df, total_row], ignore_index=True)
+        
+        st.dataframe(
+            resumen_df.style.format({
+                "Horas requeridas": "{:.2f}",
+                "% del total semanal": "{:.1f}%"
+            }),
+            use_container_width=True
+        )
+        
+        # Identificar bloques de mayor demanda
+        st.subheader("🔥 Top 10 Bloques de Mayor Demanda")
+        
+        # Convertir matriz a formato largo
+        matriz_long = matriz_horas.stack().reset_index()
+        matriz_long.columns = ['Bloque', 'Día', 'Horas']
+        matriz_long = matriz_long.sort_values('Horas', ascending=False).head(10)
+        
+        st.dataframe(
+            matriz_long.reset_index(drop=True).style.format({"Horas": "{:.2f}"}),
+            use_container_width=True
+        )
+        
+        # Gráfico de líneas por día
+        st.subheader("📈 Evolución de demanda durante el día")
+        
+        fig_lineas = px.line(
+            df_local,
+            x='bloque_30min',
+            y='horas_bloque',
+            color='dia',
+            title=f"Evolución horaria de demanda - {area_seleccionada}",
+            labels={'bloque_30min': 'Hora', 'horas_bloque': 'Horas requeridas', 'dia': 'Día'},
+            category_orders={"dia": dias_orden}
+        )
+        
+        fig_lineas.update_xaxis(tickangle=45, nticks=20)
+        fig_lineas.update_layout(height=400, hovermode='x unified')
+        
+        st.plotly_chart(fig_lineas, use_container_width=True)
+        
+        # Gráfico de barras por día
+        st.subheader("📊 Comparativa de horas por día")
+        
+        fig_barras = px.bar(
+            resumen_df[resumen_df['Día'] != 'TOTAL SEMANA'],
+            x="Día",
+            y="Horas requeridas",
+            title=f"Horas requeridas por día - {area_seleccionada}",
+            color="Horas requeridas",
+            color_continuous_scale="Blues",
+            text="Horas requeridas"
+        )
+        
+        fig_barras.update_traces(texttemplate='%{text:.1f}h', textposition='outside')
+        fig_barras.update_layout(height=400)
+        
+        st.plotly_chart(fig_barras, use_container_width=True)
+        
+        # Análisis de franjas horarias (agrupación inteligente)
+        st.subheader("⏰ Análisis por franjas horarias")
+        
+        # Crear columna de hora numérica
+        df_local['hora_num'] = pd.to_datetime(
+            df_local['bloque_30min'], 
+            format='%H:%M'
+        ).dt.hour + pd.to_datetime(
+            df_local['bloque_30min'], 
+            format='%H:%M'
+        ).dt.minute / 60
+        
+        # Definir franjas
+        def asignar_franja(hora):
+            if 6 <= hora < 12:
+                return "Mañana (06:00-12:00)"
+            elif 12 <= hora < 16:
+                return "Mediodía (12:00-16:00)"
+            elif 16 <= hora < 20:
+                return "Tarde (16:00-20:00)"
+            elif 20 <= hora < 24:
+                return "Noche (20:00-24:00)"
+            else:
+                return "Madrugada (00:00-06:00)"
+        
+        df_local['franja'] = df_local['hora_num'].apply(asignar_franja)
+        
+        # Agrupar por franja y día
+        franjas_pivot = df_local.pivot_table(
+            index='franja',
+            columns='dia',
+            values='horas_bloque',
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        franjas_pivot = franjas_pivot.reindex(columns=dias_orden, fill_value=0)
+        franjas_pivot['Total'] = franjas_pivot.sum(axis=1)
+        
+        # Ordenar franjas lógicamente
+        orden_franjas = [
+            "Mañana (06:00-12:00)",
+            "Mediodía (12:00-16:00)", 
+            "Tarde (16:00-20:00)",
+            "Noche (20:00-24:00)",
+            "Madrugada (00:00-06:00)"
+        ]
+        
+        franjas_pivot = franjas_pivot.reindex(
+            [f for f in orden_franjas if f in franjas_pivot.index]
+        )
+        
+        st.dataframe(franjas_pivot.round(2), use_container_width=True)
+        
+        # Opción de descarga
+        st.markdown("---")
+        st.subheader("💾 Exportar datos")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            csv_horas = matriz_horas.to_csv(index=True)
+            st.download_button(
+                label="⬇️ Distribución detallada",
+                data=csv_horas,
+                file_name=f"distribucion_horas_{local}_{area_seleccionada}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            csv_resumen = resumen_df.to_csv(index=False)
+            st.download_button(
+                label="⬇️ Resumen por día",
+                data=csv_resumen,
+                file_name=f"resumen_horas_{local}_{area_seleccionada}.csv",
+                mime="text/csv"
+            )
+        
+        with col3:
+            csv_franjas = franjas_pivot.to_csv(index=True)
+            st.download_button(
+                label="⬇️ Análisis por franjas",
+                data=csv_franjas,
+                file_name=f"franjas_horas_{local}_{area_seleccionada}.csv",
+                mime="text/csv"
+            )
+    
+    else:
+        st.warning(f"⚠️ No hay datos de distribución disponibles para {local}")
+
+except FileNotFoundError:
+    st.error("""
+    ⚠️ **Archivo no encontrado**
+    
+    Por favor, asegúrate de que el archivo `data/distribucion_ventas_local.csv` 
+    existe en tu repositorio con la siguiente estructura:
+
+# --------------------------------------------------
 # OUTPUTS
 # --------------------------------------------------
 st.header("Ventas diarias")
