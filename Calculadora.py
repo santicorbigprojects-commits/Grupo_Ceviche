@@ -33,4 +33,17 @@ tipo_productividad = st.selectbox(
 )
 
 if st.button("Calcular"):
+    
+    venta_glovo = venta_diaria * share_glovo
+    venta_sala = venta_diaria - venta_glovo
+
+    st.subheader("Distribución de Ventas")
+
+    ventas_df = pd.DataFrame({
+        "Concepto": ["Venta total", "Venta sala", "Venta Glovo"],
+        "Monto (€)": [venta_diaria, venta_sala, venta_glovo]
+    })
+
+    st.table(ventas_df.style.format("{:.2f}"))
+
     st.success("App conectada correctamente 🚀")
