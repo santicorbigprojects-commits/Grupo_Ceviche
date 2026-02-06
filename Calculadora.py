@@ -344,21 +344,35 @@ st.dataframe(
 )
 
 # --------------------------------------------------
-# 2. HORAS TEÓRICAS
+# 2. HORAS TEÓRICAS (AHORA BASADAS EN DISTRIBUCIÓN REAL)
 # --------------------------------------------------
 st.markdown("---")
 st.header("⏰ Horas Teóricas")
+
+# Crear tablas con horas reales distribuidas
+tabla_horas_sala_real = pd.DataFrame(
+    [horas_sala_por_dia.values],
+    index=[f"HORAS {tipo_productividad}"],
+    columns=dias_orden
+)
+
+tabla_horas_cocina_real = pd.DataFrame(
+    [horas_cocina_por_dia.values],
+    index=[f"HORAS {tipo_productividad}"],
+    columns=dias_orden
+)
 
 col3, col4 = st.columns(2)
 
 with col3:
     st.subheader("🍽️ SALA")
-    st.dataframe(tabla_horas_sala.round(2), use_container_width=True)
+    st.dataframe(tabla_horas_sala_real.round(2), use_container_width=True)
+    st.caption(f"Total semanal: {horas_sala_por_dia.sum():.2f} horas")
 
 with col4:
     st.subheader("👨‍🍳 COCINA")
-    st.dataframe(tabla_horas_cocina.round(2), use_container_width=True)
-
+    st.dataframe(tabla_horas_cocina_real.round(2), use_container_width=True)
+    st.caption(f"Total semanal: {horas_cocina_por_dia.sum():.2f} horas")
 # --------------------------------------------------
 # 3. DISTRIBUCIÓN DE HORAS POR BLOQUES
 # --------------------------------------------------
