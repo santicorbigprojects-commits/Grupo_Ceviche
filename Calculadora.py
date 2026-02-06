@@ -572,7 +572,18 @@ total_horas_cocina = horas_cocina_por_dia.sum()
 total_horas = horas_totales_por_dia.sum()
 productividad_efectiva_promedio = total_ventas / total_horas
 
-total_row_prod = pd.DataFrame({
+# Fila de TOTAL SEMANAL (suma)
+total_row_suma = pd.DataFrame({
+    "Día": ["TOTAL SEMANAL"],
+    "Ventas (€)": [total_ventas],
+    "Horas Sala": [total_horas_sala],
+    "Horas Cocina": [total_horas_cocina],
+    "Horas Totales": [total_horas],
+    "Productividad Efectiva (€/h)": [productividad_efectiva_promedio]
+})
+
+# Fila de PROMEDIO SEMANAL
+promedio_row = pd.DataFrame({
     "Día": ["PROMEDIO SEMANAL"],
     "Ventas (€)": [total_ventas / 7],
     "Horas Sala": [total_horas_sala / 7],
@@ -581,7 +592,8 @@ total_row_prod = pd.DataFrame({
     "Productividad Efectiva (€/h)": [productividad_efectiva_promedio]
 })
 
-productividad_df = pd.concat([productividad_df, total_row_prod], ignore_index=True)
+# Concatenar: datos diarios + total + promedio
+productividad_df = pd.concat([productividad_df, total_row_suma, promedio_row], ignore_index=True)
 
 st.dataframe(
     productividad_df.style.format({
@@ -597,8 +609,13 @@ st.dataframe(
 # 5.1. Gráfico de productividad efectiva
 st.subheader("📈 Productividad Efectiva por Día")
 
+# Filtrar solo los días (sin totales ni promedios)
+productividad_df_dias = productividad_df[
+    ~productividad_df['Día'].isin(['TOTAL SEMANAL', 'PROMEDIO SEMANAL'])
+]
+
 fig_prod = px.bar(
-    productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL'],
+    productividad_df_dias,
     x="Día",
     y="Productividad Efectiva (€/h)",
     title="Productividad Efectiva por Día de la Semana",
@@ -619,16 +636,16 @@ fig_comparativa = go.Figure()
 
 fig_comparativa.add_trace(go.Bar(
     name='Horas Totales',
-    x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
-    y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Horas Totales'],
+    x=productividad_df_dias['Día'],
+    y=productividad_df_dias['Horas Totales'],
     yaxis='y',
     marker_color='lightblue'
 ))
 
 fig_comparativa.add_trace(go.Scatter(
     name='Ventas',
-    x=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Día'],
-    y=productividad_df[productividad_df['Día'] != 'PROMEDIO SEMANAL']['Ventas (€)'],
+    x=productividad_df_dias['Día'],
+    y=productividad_df_dias['Ventas (€)'],
     yaxis='y2',
     marker_color='green',
     line=dict(width=3)
@@ -644,7 +661,6 @@ fig_comparativa.update_layout(
 )
 
 st.plotly_chart(fig_comparativa, use_container_width=True)
-
 # --------------------------------------------------
 # 6. EXPORTAR DATOS
 # --------------------------------------------------
