@@ -431,9 +431,13 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     Retorna:
     - matriz_personal: DataFrame con cantidad de personal por bloque
     """
-    # Crear copia de la matriz y redondear hacia arriba
+    # Crear copia de la matriz
+    # Convertir horas del bloque a número de personas necesarias
+    # Si el bloque requiere X horas, y cada persona trabaja 0.5h (30 min)
+    # entonces necesitamos X / 0.5 = X * 2 personas
     matriz_personal = matriz_horas.copy()
-    matriz_personal = np.ceil(matriz_personal).astype(int)
+    matriz_personal = matriz_personal * 2  # Convertir horas a personas (cada bloque = 30min)
+    matriz_personal = np.ceil(matriz_personal).astype(int)  # Redondear hacia arriba
     
     # Aplicar restricciones por horarios
     horarios = horarios_locales[local]
@@ -490,9 +494,11 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
 matriz_personal_sala = calcular_personal_requerido(matriz_horas_sala, "SALA", local, dias_orden)
 matriz_personal_cocina = calcular_personal_requerido(matriz_horas_cocina, "COCINA", local, dias_orden)
 
-# Calcular horas reales (suma de trabajadores en bloques / 2)
-horas_reales_sala = matriz_personal_sala.sum(axis=0) / 2
-horas_reales_cocina = matriz_personal_cocina.sum(axis=0) / 2
+# Calcular horas reales 
+# Cada persona en un bloque de 30 min = 0.5 horas
+# Sumamos todas las personas-bloque y multiplicamos por 0.5
+horas_reales_sala = matriz_personal_sala.sum(axis=0) * 0.5
+horas_reales_cocina = matriz_personal_cocina.sum(axis=0) * 0.5
 horas_reales_totales = horas_reales_sala + horas_reales_cocina
 
 # Calcular productividad efectiva real
