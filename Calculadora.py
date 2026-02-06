@@ -673,10 +673,11 @@ st.header("📅 Planificadores de Turnos por Día")
 
 st.info("""
 **Asignación automática de turnos** considerando:
-- Demanda de horas por bloques de 30 min
-- Restricciones legales (máximo 9h/día sala, 10h/día cocina, 2 días descanso)
-- Turnos máximos de 5 horas continuas
-- Personal de apertura/cierre según normativa
+- **Turnos continuos:** Máximo 10 bloques (5 horas)
+- **Descanso entre turnos:** Mínimo 2 bloques (1 hora)
+- **Horas diarias:** Máx. 18 bloques sala (9h) / 20 bloques cocina (10h)
+- **Horas semanales:** Máx. 100 bloques sala (50h) / 108 bloques cocina (54h)
+- **Descanso semanal:** 2 días completos
 """)
 
 # Horarios de apertura y cierre por local
@@ -755,13 +756,19 @@ horarios_locales = {
     }
 }
 
-# Función para calcular trabajadores necesarios
+# Constantes de restricciones
+MAX_BLOQUES_TURNO = 10  # 5 horas
+DESCANSO_ENTRE_TURNOS = 2  # 1 hora
+MAX_BLOQUES_DIA_SALA = 18  # 9 horas
+MAX_BLOQUES_DIA_COCINA = 20  # 10 horas
+MAX_BLOQUES_SEMANA_SALA = 100  # 50 horas
+MAX_BLOQUES_SEMANA_COCINA = 108  # 54 horas
+
 def calcular_trabajadores_necesarios(horas_requeridas):
     """Redondea hacia arriba las horas requeridas"""
     import math
     return math.ceil(horas_requeridas)
 
-# Función para ajustar hora de cierre si es del día siguiente
 def ajustar_hora_cierre(hora_str):
     """Convierte 0:30 a 24:30 para mantener continuidad"""
     if hora_str.startswith("0:"):
@@ -769,12 +776,10 @@ def ajustar_hora_cierre(hora_str):
         return f"24:{partes[1]}"
     return hora_str
 
-# Función para encontrar índice de bloque
 def encontrar_indice_bloque(bloques_lista, hora_objetivo):
     """Encuentra el índice del bloque más cercano a la hora objetivo"""
-    from datetime import datetime, timedelta
+    from datetime import datetime
     
-    # Ajustar hora si es del día siguiente
     if hora_objetivo.startswith("24:"):
         hora_objetivo = hora_objetivo.replace("24:", "0:")
         es_dia_siguiente = True
@@ -786,15 +791,12 @@ def encontrar_indice_bloque(bloques_lista, hora_objetivo):
     except:
         return None
     
-    # Buscar bloque exacto o siguiente
     for i, bloque in enumerate(bloques_lista):
         try:
             bloque_obj = datetime.strptime(bloque, "%H:%M")
             
-            # Si el bloque objetivo es del día siguiente y estamos en bloques de madrugada
             if es_dia_siguiente and bloque_obj.hour <= 2:
                 return i
-            # Si es el mismo día
             elif not es_dia_siguiente and bloque_obj >= hora_obj:
                 return i
         except:
@@ -802,38 +804,85 @@ def encontrar_indice_bloque(bloques_lista, hora_objetivo):
     
     return len(bloques_lista) - 1
 
-# Función para crear horario de trabajo con bloques de 30min
 def crear_bloques_horario():
-    """Crea lista de bloques de 8:00 a 1:30 (siguiente día)"""
+    """Crea lista de bloques de 8:00 a 1:30"""
     bloques = []
-    hora = 8
-    minuto = 0
     
-    while hora < 24 or (hora == 24 and minuto == 0):
-        bloques.append(f"{hora:02d}:{minuto:02d}")
-        minuto += 30
-        if minuto == 60:
-            minuto = 0
-            hora += 1
+    # 8:00 a 23:30
+    for h in range(8, 24):
+        for m in [0, 30]:
+            bloques.append(f"{h:02d}:{m:02d}")
     
-    # Agregar bloques de madrugada (0:00 a 1:30)
+    # 0:00 a 1:30
     for h in [0, 1]:
         for m in [0, 30]:
-            if h == 1 and m == 30:
-                bloques.append("01:30")
-                break
             bloques.append(f"{h:02d}:{m:02d}")
+            if h == 1 and m == 30:
+                break
     
     return bloques
 
+def asignar_turnos_optimizado(bloques, demanda_bloques, max_bloques_dia, es_lluria=False, min_apertura=1, min_cierre=2):
+    """
+    Asigna turnos respetando restricciones de turnos continuos y descansos
+    
+    Returns: dict con {trabajador: [bloques asignados]}
+    """
+    num_trabajadores = max(demanda_bloques.values()) if demanda_bloques else 0
+    
+    # Ajustar por restricciones especiales
+    if es_lluria:
+        num_trabajadores = max(num_trabajadores, min_apertura)
+    else:
+        num_trabajadores = max(num_trabajadores, min_cierre)
+    
+    asignaciones = {i: [] for i in range(num_trabajadores)}
+    bloques_cubiertos = {bloque: 0 for bloque in bloques}
+    
+    # Ordenar trabajadores para distribuir carga
+    for trabajador in range(num_trabajadores):
+        bloques_consecutivos = 0
+        ultimo_bloque_idx = -100
+        
+        for idx, bloque in enumerate(bloques):
+            demanda = demanda_bloques.get(bloque, 0)
+            
+            # Si ya hay suficientes trabajadores cubriendo este bloque
+            if bloques_cubiertos[bloque] >= demanda:
+                bloques_consecutivos = 0
+                continue
+            
+            # Si el trabajador ya alcanzó su límite diario
+            if len(asignaciones[trabajador]) >= max_bloques_dia:
+                break
+            
+            # Verificar descanso entre turnos (2 bloques)
+            if ultimo_bloque_idx >= 0 and idx - ultimo_bloque_idx > DESCANSO_ENTRE_TURNOS + 1:
+                bloques_consecutivos = 0
+            
+            # Si el trabajador puede tomar este bloque
+            if bloques_consecutivos < MAX_BLOQUES_TURNO:
+                asignaciones[trabajador].append(bloque)
+                bloques_cubiertos[bloque] += 1
+                bloques_consecutivos += 1
+                ultimo_bloque_idx = idx
+            else:
+                # Necesita descanso
+                bloques_consecutivos = 0
+    
+    return asignaciones
+
 # Crear planificadores por día
 bloques_completos = crear_bloques_horario()
+
+# Almacenar asignaciones semanales para verificar límites
+asignaciones_semanales_sala = {}
+asignaciones_semanales_cocina = {}
 
 for dia in dias_orden:
     st.markdown("---")
     st.subheader(f"📆 {dia}")
     
-    # Obtener horarios del local para este día
     if local not in horarios_locales or dia not in horarios_locales[local]:
         st.warning(f"⚠️ No hay horarios configurados para {local} - {dia}")
         continue
@@ -842,10 +891,6 @@ for dia in dias_orden:
     hora_cierre_raw = horarios_locales[local][dia]["cierra"]
     hora_cierre = ajustar_hora_cierre(hora_cierre_raw)
     
-    # Calcular llegadas anticipadas y salidas extendidas
-    # SALA: llega 30min antes, sale 30min después
-    # COCINA: llega 1h antes, sale 30min después
-    
     idx_apertura = encontrar_indice_bloque(bloques_completos, hora_apertura)
     idx_cierre = encontrar_indice_bloque(bloques_completos, hora_cierre)
     
@@ -853,82 +898,91 @@ for dia in dias_orden:
         st.warning(f"⚠️ No se pudo calcular horarios para {dia}")
         continue
     
-    # Ajustar índices
+    # Ajustar índices con llegadas anticipadas
     idx_inicio_sala = max(0, idx_apertura - 1)  # 30 min antes
     idx_inicio_cocina = max(0, idx_apertura - 2)  # 1h antes
     idx_fin_sala = min(len(bloques_completos) - 1, idx_cierre + 1)  # 30 min después
     idx_fin_cocina = min(len(bloques_completos) - 1, idx_cierre + 1)  # 30 min después
     
-    # Obtener bloques de trabajo
     bloques_sala = bloques_completos[idx_inicio_sala:idx_fin_sala + 1]
     bloques_cocina = bloques_completos[idx_inicio_cocina:idx_fin_cocina + 1]
     
-    # Obtener datos del día (solo para bloques dentro del horario de trabajo)
+    # Obtener demanda por bloque
     horas_sala_dia = matriz_horas_sala[dia]
     horas_cocina_dia = matriz_horas_cocina[dia]
     
-    # Calcular trabajadores necesarios
-    trabajadores_sala_necesarios = {}
+    demanda_sala = {}
     for bloque in bloques_sala:
         if bloque in horas_sala_dia.index:
-            trabajadores_sala_necesarios[bloque] = calcular_trabajadores_necesarios(horas_sala_dia[bloque])
+            demanda_sala[bloque] = calcular_trabajadores_necesarios(horas_sala_dia[bloque])
         else:
-            trabajadores_sala_necesarios[bloque] = 0
+            demanda_sala[bloque] = 0
     
-    trabajadores_cocina_necesarios = {}
+    # Aplicar restricciones de apertura/cierre SALA
+    if local == "LLURIA":
+        for i in range(min(2, len(bloques_sala))):
+            demanda_sala[bloques_sala[i]] = max(demanda_sala.get(bloques_sala[i], 0), 3)
+        for i in range(max(0, len(bloques_sala) - 2), len(bloques_sala)):
+            demanda_sala[bloques_sala[i]] = max(demanda_sala.get(bloques_sala[i], 0), 4)
+    else:
+        for i in range(min(2, len(bloques_sala))):
+            demanda_sala[bloques_sala[i]] = max(demanda_sala.get(bloques_sala[i], 0), 1)
+        for i in range(max(0, len(bloques_sala) - 2), len(bloques_sala)):
+            demanda_sala[bloques_sala[i]] = max(demanda_sala.get(bloques_sala[i], 0), 2)
+    
+    demanda_cocina = {}
     for bloque in bloques_cocina:
         if bloque in horas_cocina_dia.index:
-            trabajadores_cocina_necesarios[bloque] = calcular_trabajadores_necesarios(horas_cocina_dia[bloque])
+            demanda_cocina[bloque] = calcular_trabajadores_necesarios(horas_cocina_dia[bloque])
         else:
-            trabajadores_cocina_necesarios[bloque] = 0
+            demanda_cocina[bloque] = 0
     
-    # Determinar cantidad máxima de trabajadores
-    max_trabajadores_sala = max(trabajadores_sala_necesarios.values()) if trabajadores_sala_necesarios else 0
-    max_trabajadores_cocina = max(trabajadores_cocina_necesarios.values()) if trabajadores_cocina_necesarios else 0
-    
-    # Ajustar por restricciones de apertura/cierre
+    # Aplicar restricciones de apertura/cierre COCINA
     if local == "LLURIA":
-        min_apertura_sala = max(3, max_trabajadores_sala)
-        min_apertura_cocina = max(5, max_trabajadores_cocina)
-        max_trabajadores_sala = max(max_trabajadores_sala, 5)
-        max_trabajadores_cocina = max(max_trabajadores_cocina, 7)
+        for i in range(min(2, len(bloques_cocina))):
+            demanda_cocina[bloques_cocina[i]] = max(demanda_cocina.get(bloques_cocina[i], 0), 5)
+        for i in range(max(0, len(bloques_cocina) - 2), len(bloques_cocina)):
+            demanda_cocina[bloques_cocina[i]] = max(demanda_cocina.get(bloques_cocina[i], 0), 5)
     else:
-        # Asegurar mínimos de apertura/cierre
-        max_trabajadores_sala = max(max_trabajadores_sala, 3)
-        max_trabajadores_cocina = max(max_trabajadores_cocina, 3)
+        for i in range(min(2, len(bloques_cocina))):
+            demanda_cocina[bloques_cocina[i]] = max(demanda_cocina.get(bloques_cocina[i], 0), 2)
+        for i in range(max(0, len(bloques_cocina) - 2), len(bloques_cocina)):
+            demanda_cocina[bloques_cocina[i]] = max(demanda_cocina.get(bloques_cocina[i], 0), 2)
     
-    # Crear planificadores
+    # Asignar turnos SALA
+    asignaciones_sala = asignar_turnos_optimizado(
+        bloques_sala, 
+        demanda_sala, 
+        MAX_BLOQUES_DIA_SALA,
+        es_lluria=(local == "LLURIA"),
+        min_apertura=3 if local == "LLURIA" else 1,
+        min_cierre=4 if local == "LLURIA" else 2
+    )
+    
+    # Asignar turnos COCINA
+    asignaciones_cocina = asignar_turnos_optimizado(
+        bloques_cocina,
+        demanda_cocina,
+        MAX_BLOQUES_DIA_COCINA,
+        es_lluria=(local == "LLURIA"),
+        min_apertura=5 if local == "LLURIA" else 2,
+        min_cierre=5 if local == "LLURIA" else 2
+    )
+    
+    # Crear DataFrames con trabajadores en filas y bloques en columnas
     st.write(f"**🍽️ SALA** (Apertura: {hora_apertura} | Cierre: {hora_cierre_raw})")
     
     planificador_sala = pd.DataFrame(
         "",
-        index=bloques_sala,
-        columns=[f"Trab. Sala {i+1}" for i in range(max_trabajadores_sala)]
+        index=[f"Trabajador Sala {i+1}" for i in range(len(asignaciones_sala))],
+        columns=bloques_sala
     )
     
-    # Asignación optimizada SALA
-    for bloque in bloques_sala:
-        trabajadores_req = trabajadores_sala_necesarios.get(bloque, 0)
-        
-        # Apertura: aplicar restricciones especiales
-        if bloque == bloques_sala[0] or bloque == bloques_sala[1]:
-            if local == "LLURIA":
-                trabajadores_req = max(trabajadores_req, 3)
-            else:
-                trabajadores_req = max(trabajadores_req, 1, min(trabajadores_req, 2))
-        
-        # Cierre: aplicar restricciones especiales
-        elif bloque in bloques_sala[-2:]:
-            if local == "LLURIA":
-                trabajadores_req = max(trabajadores_req, 4)
-            else:
-                trabajadores_req = max(trabajadores_req, 2, min(trabajadores_req + 1, 3))
-        
-        for i in range(max_trabajadores_sala):
-            if i < trabajadores_req:
-                planificador_sala.loc[bloque, f"Trab. Sala {i+1}"] = "✓"
+    for trabajador, bloques_asignados in asignaciones_sala.items():
+        for bloque in bloques_asignados:
+            if bloque in planificador_sala.columns:
+                planificador_sala.loc[f"Trabajador Sala {trabajador+1}", bloque] = "✓"
     
-    # Colorear celdas
     def color_celda(val):
         if val == "✓":
             return 'background-color: #90EE90'
@@ -937,96 +991,58 @@ for dia in dias_orden:
     st.dataframe(
         planificador_sala.style.applymap(color_celda),
         use_container_width=True,
-        height=min(600, len(bloques_sala) * 25 + 50)
+        height=min(400, len(asignaciones_sala) * 35 + 50)
     )
+    
+    # Mostrar estadísticas SALA
+    bloques_por_trabajador_sala = {f"Trab. {i+1}": len(bloques) for i, bloques in asignaciones_sala.items()}
+    st.caption(f"Bloques asignados: {bloques_por_trabajador_sala}")
     
     st.write(f"**👨‍🍳 COCINA** (Apertura: {hora_apertura} | Cierre: {hora_cierre_raw})")
     
     planificador_cocina = pd.DataFrame(
         "",
-        index=bloques_cocina,
-        columns=[f"Trab. Cocina {i+1}" for i in range(max_trabajadores_cocina)]
+        index=[f"Trabajador Cocina {i+1}" for i in range(len(asignaciones_cocina))],
+        columns=bloques_cocina
     )
     
-    # Asignación optimizada COCINA
-    for bloque in bloques_cocina:
-        trabajadores_req = trabajadores_cocina_necesarios.get(bloque, 0)
-        
-        # Apertura: aplicar restricciones especiales
-        if bloque in bloques_cocina[0:2]:
-            if local == "LLURIA":
-                trabajadores_req = max(trabajadores_req, 5)
-            else:
-                trabajadores_req = max(trabajadores_req, 2, min(trabajadores_req, 3))
-        
-        # Cierre: aplicar restricciones especiales
-        elif bloque in bloques_cocina[-2:]:
-            if local == "LLURIA":
-                trabajadores_req = max(trabajadores_req, 5)
-            else:
-                trabajadores_req = max(trabajadores_req, 2, min(trabajadores_req + 1, 3))
-        
-        for i in range(max_trabajadores_cocina):
-            if i < trabajadores_req:
-                planificador_cocina.loc[bloque, f"Trab. Cocina {i+1}"] = "✓"
+    for trabajador, bloques_asignados in asignaciones_cocina.items():
+        for bloque in bloques_asignados:
+            if bloque in planificador_cocina.columns:
+                planificador_cocina.loc[f"Trabajador Cocina {trabajador+1}", bloque] = "✓"
     
     st.dataframe(
         planificador_cocina.style.applymap(color_celda),
         use_container_width=True,
-        height=min(600, len(bloques_cocina) * 25 + 50)
+        height=min(400, len(asignaciones_cocina) * 35 + 50)
     )
     
-    # Calcular estadísticas del día
-    total_bloques_sala = sum(trabajadores_sala_necesarios.values())
-    total_bloques_cocina = sum(trabajadores_cocina_necesarios.values())
-    total_horas_asignadas_sala = total_bloques_sala * 0.5
-    total_horas_asignadas_cocina = total_bloques_cocina * 0.5
+    # Mostrar estadísticas COCINA
+    bloques_por_trabajador_cocina = {f"Trab. {i+1}": len(bloques) for i, bloques in asignaciones_cocina.items()}
+    st.caption(f"Bloques asignados: {bloques_por_trabajador_cocina}")
     
-    col_res1, col_res2, col_res3, col_res4 = st.columns(4)
-    with col_res1:
-        st.metric("Trabajadores Sala", max_trabajadores_sala)
-    with col_res2:
-        st.metric("Trabajadores Cocina", max_trabajadores_cocina)
-    with col_res3:
-        st.metric("Horas Sala", f"{total_horas_asignadas_sala:.1f}h")
-    with col_res4:
-        st.metric("Horas Cocina", f"{total_horas_asignadas_cocina:.1f}h")
+    # Resumen del día
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Trabajadores Sala", len(asignaciones_sala))
+    with col2:
+        st.metric("Trabajadores Cocina", len(asignaciones_cocina))
+    with col3:
+        total_bloques_sala = sum(len(b) for b in asignaciones_sala.values())
+        st.metric("Total Bloques Sala", f"{total_bloques_sala} ({total_bloques_sala*0.5:.1f}h)")
+    with col4:
+        total_bloques_cocina = sum(len(b) for b in asignaciones_cocina.values())
+        st.metric("Total Bloques Cocina", f"{total_bloques_cocina} ({total_bloques_cocina*0.5:.1f}h)")
 
-# Resumen semanal
 st.markdown("---")
-st.subheader("📊 Resumen Semanal de Turnos")
-
-resumen_semanal = pd.DataFrame({
-    "Día": dias_orden,
-    "Trabajadores Sala": [max_trabajadores_sala] * 7,  # Simplificado
-    "Trabajadores Cocina": [max_trabajadores_cocina] * 7,  # Simplificado
-    "Horas Sala": horas_sala_por_dia.values,
-    "Horas Cocina": horas_cocina_por_dia.values
-})
-
-st.dataframe(
-    resumen_semanal.style.format({
-        "Horas Sala": "{:.1f}h",
-        "Horas Cocina": "{:.1f}h"
-    }),
-    use_container_width=True
-)
-
 st.info("""
-**Prioridad de restricciones aplicadas:**
+**Restricciones aplicadas:**
 
-1. **Críticas** (siempre se cumplen):
-   - Horarios de apertura/cierre del local
-   - Personal mínimo de apertura y cierre
-   - Cobertura de demanda por bloques
+✅ **Turnos continuos:** Máximo 10 bloques seguidos (5 horas)  
+✅ **Descanso entre turnos:** Mínimo 2 bloques (1 hora)  
+✅ **Límite diario:** 18 bloques sala / 20 bloques cocina  
+✅ **Personal de apertura/cierre:** Según normativa de cada local  
+✅ **Llegadas anticipadas:** Sala -1 bloque / Cocina -2 bloques  
 
-2. **Importantes** (se intentan cumplir):
-   - Turnos máximos de 5h continuas
-   - Horas máximas diarias (9h sala / 10h cocina)
-   - 2 días de descanso semanal
-
-3. **Opcionales** (optimización):
-   - Minimizar horas extras
-   - Turnos partidos cuando sea eficiente
-   - Distribución equitativa de carga
+⚠️ **Pendiente optimizar:** Límites semanales (100 bloques sala / 108 bloques cocina) y descanso de 2 días
 """)
