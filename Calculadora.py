@@ -434,12 +434,10 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     Retorna:
     - matriz_personal: DataFrame con cantidad de personal por bloque
     """
-    # Crear copia de la matriz
-    # Convertir horas del bloque a número de personas necesarias
-    # Si el bloque requiere X horas, y cada persona trabaja 0.5h (30 min)
-    # entonces necesitamos X / 0.5 = X * 2 personas
+    # Crear copia de la matriz y redondear hacia arriba
+    # La matriz ya viene en bloques-persona (ej: 0.7 = 0.7 personas necesarias)
+    # Solo necesitamos redondear hacia arriba
     matriz_personal = matriz_horas.copy()
-    matriz_personal = matriz_personal * 2  # Convertir horas a personas (cada bloque = 30min)
     matriz_personal = np.ceil(matriz_personal).astype(int)  # Redondear hacia arriba
     
     # Aplicar restricciones por horarios
@@ -496,6 +494,30 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
 # Calcular matrices de personal
 matriz_personal_sala = calcular_personal_requerido(matriz_bloques_sala, "SALA", local, dias_orden)
 matriz_personal_cocina = calcular_personal_requerido(matriz_bloques_cocina, "COCINA", local, dias_orden)
+
+# ===== DEBUG TEMPORAL =====
+st.markdown("---")
+st.header("🔍 DEBUG - Valores Internos")
+st.write(f"**Local seleccionado:** {local}")
+st.write(f"**Horas semanales SALA:** {horas_semanales_sala:.2f} horas")
+st.write(f"**Bloques semanales SALA:** {horas_semanales_sala * 2:.2f} bloques")
+
+if "13:00" in matriz_bloques_sala.index and "LUNES" in matriz_bloques_sala.columns:
+    valor_bloques = matriz_bloques_sala.loc["13:00", "LUNES"]
+    valor_horas = valor_bloques / 2
+    valor_personal = matriz_personal_sala.loc["13:00", "LUNES"]
+    
+    st.write(f"\n**Ejemplo: Lunes 13:00**")
+    st.write(f"- Bloques-persona (interno): {valor_bloques:.2f}")
+    st.write(f"- Horas mostradas: {valor_horas:.2f}")
+    st.write(f"- Personal redondeado: {valor_personal}")
+    st.write(f"- Personal esperado: {int(np.ceil(valor_bloques))}")
+    
+    if valor_personal != int(np.ceil(valor_bloques)):
+        st.error(f"❌ ERROR: Personal ({valor_personal}) ≠ Esperado ({int(np.ceil(valor_bloques))})")
+st.markdown("---")
+# ===== FIN DEBUG =====
+
 
 # Calcular horas reales 
 # Cada persona en un bloque de 30 min = 0.5 horas
