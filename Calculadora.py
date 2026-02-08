@@ -774,23 +774,6 @@ fig_ventas.update_traces(
 
 st.plotly_chart(fig_ventas, use_container_width=True)
 
-# 5.2. Comparativa de ventas por día
-st.subheader("📊 Comparativa de ventas por día")
-
-fig_barras_ventas = px.bar(
-    x=dias_orden,
-    y=ventas_por_dia.values,
-    title="Ventas promedio por día de la semana",
-    labels={'x': 'Día', 'y': 'Ventas (€)'},
-    color=ventas_por_dia.values,
-    color_continuous_scale="Greens",
-    text=ventas_por_dia.values
-)
-
-fig_barras_ventas.update_traces(texttemplate='€%{text:.0f}', textposition='outside')
-fig_barras_ventas.update_layout(height=400, showlegend=False)
-
-st.plotly_chart(fig_barras_ventas, use_container_width=True)
 
 # --------------------------------------------------
 # 6. PRODUCTIVIDAD EFECTIVA DETALLADA (TEÓRICA)
@@ -849,28 +832,6 @@ st.dataframe(
     }),
     use_container_width=True
 )
-
-# 6.1. Gráfico de productividad efectiva
-st.subheader("📈 Productividad Efectiva Teórica por Día")
-
-productividad_df_dias = productividad_df[
-    ~productividad_df['Día'].isin(['TOTAL SEMANAL', 'PROMEDIO SEMANAL'])
-]
-
-fig_prod = px.bar(
-    productividad_df_dias,
-    x="Día",
-    y="Productividad Efectiva (€/h)",
-    title="Productividad Efectiva Teórica por Día de la Semana",
-    color="Productividad Efectiva (€/h)",
-    color_continuous_scale="RdYlGn",
-    text="Productividad Efectiva (€/h)"
-)
-
-fig_prod.update_traces(texttemplate='€%{text:.2f}', textposition='outside')
-fig_prod.update_layout(height=400, showlegend=False)
-
-st.plotly_chart(fig_prod, use_container_width=True)
 
 # 6.2. Comparativa horas vs ventas
 st.subheader("📊 Comparativa: Horas vs Ventas por Día (Teórica)")
