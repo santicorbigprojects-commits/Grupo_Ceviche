@@ -348,30 +348,28 @@ try:
     # Preparar datos SALA
     df_sala = df_local[df_local['Distribución'] == "local"].copy()
     horas_semanales_sala = tabla_horas_sala.sum(axis=1).values[0]
-    bloques_semanales_sala = horas_semanales_sala * 2  # Convertir a bloques de 30min
-    df_sala['bloques_bloque'] = df_sala['porcentaje_ventas'] * bloques_semanales_sala
+    df_sala['horas_bloque'] = df_sala['porcentaje_ventas'] * horas_semanales_sala
     df_sala['hora_num'] = pd.to_datetime(df_sala['bloque_30min'], format='%H:%M').dt.hour
     df_sala = df_sala[~((df_sala['hora_num'] >= 2) & (df_sala['hora_num'] < 8))].copy()
     
     matriz_bloques_sala = df_sala.pivot_table(
-        index='bloques_bloque',
+        index='bloque_30min',
         columns='día',
-        values='bloque_bloque',
+        values='bloques_bloque',
         fill_value=0
     )
     
     # Preparar datos COCINA
     df_cocina = df_local[df_local['Distribución'] == "glovo&local"].copy()
     horas_semanales_cocina = tabla_horas_cocina.sum(axis=1).values[0]
-    bloques_semanales_cocina = horas_semanales_cocina * 2  # Convertir a bloques de 30min
-    df_cocina['bloques_bloque'] = df_cocina['porcentaje_ventas'] * bloques_semanales_cocina
+    df_cocina['horas_bloque'] = df_cocina['porcentaje_ventas'] * horas_semanales_cocina
     df_cocina['hora_num'] = pd.to_datetime(df_cocina['bloque_30min'], format='%H:%M').dt.hour
     df_cocina = df_cocina[~((df_cocina['hora_num'] >= 2) & (df_cocina['hora_num'] < 8))].copy()
     
     matriz_bloques_cocina = df_cocina.pivot_table(
-        index='bloque_bloque',
+        index='bloque_30min',
         columns='día',
-        values='bloque_bloque',
+        values='bloques_bloque',
         fill_value=0
     )
     
@@ -391,21 +389,22 @@ try:
     
     # Ordenar días en todas las matrices
     dias_orden = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
-    matriz_horas_sala = matriz_horas_sala.reindex(columns=dias_orden, fill_value=0)
-    matriz_horas_cocina = matriz_horas_cocina.reindex(columns=dias_orden, fill_value=0)
+    matriz_bloques_sala = matriz_bloques_sala.reindex(columns=dias_orden, fill_value=0)
+    matriz_bloques_cocina = matriz_bloques_cocina.reindex(columns=dias_orden, fill_value=0)
     matriz_ventas = matriz_ventas.reindex(columns=dias_orden, fill_value=0)
     
     # Reordenar bloques en todas las matrices
-    bloques_ordenados = ordenar_bloques_horarios(matriz_horas_sala.index.tolist())
-    matriz_horas_sala = matriz_horas_sala.reindex(bloques_ordenados)
-    matriz_horas_cocina = matriz_horas_cocina.reindex(bloques_ordenados)
+    bloques_ordenados = ordenar_bloques_horarios(matriz_bloques_sala.index.tolist())
+    matriz_bloques_sala = matriz_bloques_sala.reindex(bloques_ordenados)
+    matriz_bloques_cocina = matriz_bloques_cocina.reindex(bloques_ordenados)
     
     bloques_ordenados_ventas = ordenar_bloques_horarios(matriz_ventas.index.tolist())
     matriz_ventas = matriz_ventas.reindex(bloques_ordenados_ventas)
     
     # Calcular acumulados por día
-    horas_sala_por_dia = matriz_horas_sala.sum(axis=0) / 2
-    horas_cocina_por_dia = matriz_horas_cocina.sum(axis=0) / 2
+    # Las matrices contienen bloques-persona, dividimos entre 2 para obtener horas
+    horas_sala_por_dia = matriz_bloques_sala.sum(axis=0) / 2
+    horas_cocina_por_dia = matriz_bloques_cocina.sum(axis=0) / 2
     ventas_por_dia = matriz_ventas.sum(axis=0)
     horas_totales_por_dia = horas_sala_por_dia + horas_cocina_por_dia
     productividad_efectiva_por_dia = ventas_por_dia / horas_totales_por_dia
@@ -438,6 +437,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     # Si el bloque requiere X horas, y cada persona trabaja 0.5h (30 min)
     # entonces necesitamos X / 0.5 = X * 2 personas
     matriz_personal = matriz_horas.copy()
+    matriz_personal = matriz_personal * 2  # Convertir horas a personas (cada bloque = 30min)
     matriz_personal = np.ceil(matriz_personal).astype(int)  # Redondear hacia arriba
     
     # Aplicar restricciones por horarios
@@ -492,12 +492,14 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     return matriz_personal
 
 # Calcular matrices de personal
-matriz_personal_sala = calcular_personal_requerido(matriz_horas_sala, "SALA", local, dias_orden)
-matriz_personal_cocina = calcular_personal_requerido(matriz_horas_cocina, "COCINA", local, dias_orden)
+matriz_personal_sala = calcular_personal_requerido(matriz_bloques_sala, "SALA", local, dias_orden)
+matriz_personal_cocina = calcular_personal_requerido(matriz_bloques_cocina, "COCINA", local, dias_orden)
 
 # Calcular horas reales 
-horas_reales_sala = matriz_personal_sala.sum(axis=0) / 2
-horas_reales_cocina = matriz_personal_cocina.sum(axis=0) / 2
+# Cada persona en un bloque de 30 min = 0.5 horas
+# Sumamos todas las personas-bloque y multiplicamos por 0.5
+horas_reales_sala = matriz_personal_sala.sum(axis=0) * 0.5
+horas_reales_cocina = matriz_personal_cocina.sum(axis=0) * 0.5
 horas_reales_totales = horas_reales_sala + horas_reales_cocina
 
 # Calcular productividad efectiva real
@@ -569,11 +571,11 @@ area_seleccionada = st.selectbox(
 )
 
 if area_seleccionada == "SALA":
-    matriz_horas_area = matriz_horas_sala
+    matriz_bloques_area = matriz_bloques_sala
     horas_semanales_area = horas_semanales_sala
     df_area = df_sala
 else:
-    matriz_horas_area = matriz_horas_cocina
+    matriz_bloques_area = matriz_bloques_cocina
     horas_semanales_area = horas_semanales_cocina
     df_area = df_cocina
 
@@ -582,14 +584,14 @@ st.info(f"**Horas semanales totales ({area_seleccionada}):** {horas_semanales_ar
 # 3.1. Mapa de calor (días en X, horas en Y)
 st.subheader("🕐 Distribución de Horas Requeridas")
 
-suma_matriz = matriz_horas_area.sum().sum()
-st.caption(f"✅ Verificación: Suma de horas distribuidas = {suma_matriz:.2f} horas")
+suma_matriz = matriz_bloques_area.sum().sum()
+st.caption(f"✅ Verificación: Suma de bloques distribuidos = {suma_matriz:.2f} bloques-persona (= {suma_matriz/2:.2f} horas)")
 
 fig = px.imshow(
-    matriz_horas_area,
+    matriz_bloques_area / 2,  # Dividir entre 2 para mostrar en horas
     labels=dict(x="Día de la semana", y="Hora del día", color="Horas"),
-    x=matriz_horas_area.columns,
-    y=matriz_horas_area.index,
+    x=matriz_bloques_area.columns,
+    y=matriz_bloques_area.index,
     color_continuous_scale="YlOrRd",
     aspect="auto",
     title=f"Distribución de Horas - {area_seleccionada} ({local})"
@@ -604,7 +606,7 @@ fig.update_layout(
 )
 
 fig.update_traces(
-    text=matriz_horas_area.round(1),
+    text=(matriz_bloques_area / 2).round(1),
     texttemplate="%{text}",
     textfont={"size": 7},
     hovertemplate='Día: %{x}<br>Hora: %{y}<br>Horas: %{z:.2f}<extra></extra>'
@@ -622,10 +624,10 @@ df_area_filtrado = df_area_filtrado[df_area_filtrado['hora_num'] >= 10].copy()
 fig_lineas = px.line(
     df_area_filtrado,
     x='bloque_30min',
-    y='horas_bloque',
+    y='bloques_bloque',
     color='día',
     title=f"Evolución horaria de demanda desde 10:00 - {area_seleccionada}",
-    labels={'bloque_30min': 'Hora', 'horas_bloque': 'Horas requeridas', 'día': 'Día'},
+    labels={'bloque_30min': 'Hora', 'bloques_bloque': 'Personal requerido', 'día': 'Día'},
     category_orders={"día": dias_orden}
 )
 
@@ -640,7 +642,7 @@ st.plotly_chart(fig_lineas, use_container_width=True)
 # 3.3. Comparativa de horas por día
 st.subheader("📊 Comparativa de horas por día")
 
-horas_por_dia_area = matriz_horas_area.sum(axis=0)
+horas_por_dia_area = matriz_bloques_area.sum(axis=0) / 2  # Convertir bloques a horas
 
 fig_barras = px.bar(
     x=dias_orden,
