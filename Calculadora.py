@@ -354,7 +354,7 @@ try:
     df_sala = df_sala[~((df_sala['hora_num'] >= 2) & (df_sala['hora_num'] < 8))].copy()
     
     matriz_bloques_sala = df_sala.pivot_table(
-        values='bloques_bloque',
+        index='bloques_bloque',
         columns='día',
         values='bloque_bloque',
         fill_value=0
@@ -371,7 +371,7 @@ try:
     matriz_bloques_cocina = df_cocina.pivot_table(
         index='bloque_bloque',
         columns='día',
-        values='horas_bloque',
+        values='bloque_bloque',
         fill_value=0
     )
     
