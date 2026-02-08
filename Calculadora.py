@@ -436,7 +436,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     # Si el bloque requiere X horas, y cada persona trabaja 0.5h (30 min)
     # entonces necesitamos X / 0.5 = X * 2 personas
     matriz_personal = matriz_horas.copy()
-    matriz_personal = matriz_horas_area * 2
+    matriz_personal = matriz_personal * 2  # Convertir horas a personas (cada bloque = 30min)
     matriz_personal = np.ceil(matriz_personal).astype(int)  # Redondear hacia arriba
     
     # Aplicar restricciones por horarios
