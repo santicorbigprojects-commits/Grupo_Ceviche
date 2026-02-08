@@ -348,7 +348,8 @@ try:
     # Preparar datos SALA
     df_sala = df_local[df_local['Distribución'] == "local"].copy()
     horas_semanales_sala = tabla_horas_sala.sum(axis=1).values[0]
-    df_sala['horas_bloque'] = df_sala['porcentaje_ventas'] * horas_semanales_sala
+    bloques_semanales_sala = horas_semanales_sala * 2  # Convertir horas a bloques de 30min
+    df_sala['bloques_bloque'] = df_sala['porcentaje_ventas'] * bloques_semanales_sala
     df_sala['hora_num'] = pd.to_datetime(df_sala['bloque_30min'], format='%H:%M').dt.hour
     df_sala = df_sala[~((df_sala['hora_num'] >= 2) & (df_sala['hora_num'] < 8))].copy()
     
@@ -362,7 +363,8 @@ try:
     # Preparar datos COCINA
     df_cocina = df_local[df_local['Distribución'] == "glovo&local"].copy()
     horas_semanales_cocina = tabla_horas_cocina.sum(axis=1).values[0]
-    df_cocina['horas_bloque'] = df_cocina['porcentaje_ventas'] * horas_semanales_cocina
+    bloques_semanales_cocina = horas_semanales_cocina * 2  # Convertir horas a bloques de 30min
+    df_cocina['bloques_bloque'] = df_cocina['porcentaje_ventas'] * bloques_semanales_cocina
     df_cocina['hora_num'] = pd.to_datetime(df_cocina['bloque_30min'], format='%H:%M').dt.hour
     df_cocina = df_cocina[~((df_cocina['hora_num'] >= 2) & (df_cocina['hora_num'] < 8))].copy()
     
