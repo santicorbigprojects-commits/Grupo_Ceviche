@@ -356,7 +356,7 @@ try:
     matriz_bloques_sala = df_sala.pivot_table(
         values='bloques_bloque',
         columns='día',
-        values='horas_bloque',
+        values='bloque_bloque',
         fill_value=0
     )
     
