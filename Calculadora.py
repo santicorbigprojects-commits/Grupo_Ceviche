@@ -423,24 +423,26 @@ except Exception as e:
 # --------------------------------------------------
 def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     """
-    Calcula el personal requerido redondeando hacia arriba y aplicando restricciones de horarios
+    Calcula el personal requerido a partir de las horas mostradas en "Distribución de Horas Requeridas"
     
     Parámetros:
-    - matriz_horas: DataFrame con horas requeridas por bloque
+    - matriz_horas: DataFrame con HORAS requeridas por bloque (valores como 0.7, 1.2, etc.)
     - area: 'SALA' o 'COCINA'
     - local: nombre del local
     - dias_orden: lista de días de la semana
     
     Retorna:
-    - matriz_personal: DataFrame con cantidad de personal por bloque
+    - matriz_personal: DataFrame con cantidad de PERSONAS por bloque
     """
-    # Crear copia de la matriz y redondear hacia arriba
-    # La matriz ya viene en bloques-persona (ej: 0.7 = 0.7 personas necesarias)
-    # Solo necesitamos redondear hacia arriba
+    # Paso 1: Convertir horas a personas
+    # Si un bloque de 30min requiere 0.7 horas de trabajo,
+    # y cada persona trabaja 0.5h (30 min), necesitamos:
+    # 0.7h / 0.5h = 1.4 personas → redondeamos a 2 personas
     matriz_personal = matriz_horas.copy()
+    matriz_personal = matriz_personal / 0.5  # Convertir horas a personas necesarias
     matriz_personal = np.ceil(matriz_personal).astype(int)  # Redondear hacia arriba
     
-    # Aplicar restricciones por horarios
+    # Paso 2: Aplicar restricciones por horarios
     horarios = horarios_locales[local]
     
     for dia in dias_orden:
@@ -492,8 +494,12 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden):
     return matriz_personal
 
 # Calcular matrices de personal
-matriz_personal_sala = calcular_personal_requerido(matriz_bloques_sala, "SALA", local, dias_orden)
-matriz_personal_cocina = calcular_personal_requerido(matriz_bloques_cocina, "COCINA", local, dias_orden)
+# Pasamos las horas (matriz_bloques / 2) para que la función las convierta a personas
+matriz_horas_sala_para_personal = matriz_bloques_sala / 2
+matriz_horas_cocina_para_personal = matriz_bloques_cocina / 2
+
+matriz_personal_sala = calcular_personal_requerido(matriz_horas_sala_para_personal, "SALA", local, dias_orden)
+matriz_personal_cocina = calcular_personal_requerido(matriz_horas_cocina_para_personal, "COCINA", local, dias_orden)
 
 # ===== DEBUG TEMPORAL =====
 st.markdown("---")
@@ -506,15 +512,19 @@ if "13:00" in matriz_bloques_sala.index and "LUNES" in matriz_bloques_sala.colum
     valor_bloques = matriz_bloques_sala.loc["13:00", "LUNES"]
     valor_horas = valor_bloques / 2
     valor_personal = matriz_personal_sala.loc["13:00", "LUNES"]
+    personas_esperadas = int(np.ceil(valor_horas / 0.5))
     
-    st.write(f"\n**Ejemplo: Lunes 13:00**")
+    st.write(f"\n**Ejemplo: Lunes 13:00 - SALA**")
     st.write(f"- Bloques-persona (interno): {valor_bloques:.2f}")
-    st.write(f"- Horas mostradas: {valor_horas:.2f}")
-    st.write(f"- Personal redondeado: {valor_personal}")
-    st.write(f"- Personal esperado: {int(np.ceil(valor_bloques))}")
+    st.write(f"- Horas mostradas en gráfico: {valor_horas:.2f}")
+    st.write(f"- Personas necesarias: {valor_horas:.2f}h / 0.5h = {valor_horas/0.5:.2f}")
+    st.write(f"- Personal redondeado (esperado): ceil({valor_horas/0.5:.2f}) = {personas_esperadas}")
+    st.write(f"- Personal calculado (real): {valor_personal}")
     
-    if valor_personal != int(np.ceil(valor_bloques)):
-        st.error(f"❌ ERROR: Personal ({valor_personal}) ≠ Esperado ({int(np.ceil(valor_bloques))})")
+    if valor_personal != personas_esperadas:
+        st.error(f"❌ ERROR: Personal ({valor_personal}) ≠ Esperado ({personas_esperadas})")
+    else:
+        st.success(f"✅ CORRECTO: Personal = {valor_personal}")
 st.markdown("---")
 # ===== FIN DEBUG =====
 
