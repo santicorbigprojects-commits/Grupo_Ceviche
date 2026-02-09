@@ -201,6 +201,9 @@ ventas_df = pd.DataFrame({
     "Monto (€)": [venta_diaria, venta_sala, venta_glovo]
 })
 
+def convertir_hora_a_minutos(hora_str):
+    partes = hora_str.split(':')
+    return int(partes[0]) * 60 + int(partes[1])
 # --------------------------------------------------
 # PARÁMETROS DE LOS MODELOS
 # --------------------------------------------------
@@ -408,31 +411,44 @@ def calcular_personal_optimizado(matriz_horas, horarios, local, dias_orden):
         if dia not in horarios:
             continue
         
-        hora_abre = horarios[dia]["abre"]
-        hora_cierra = horarios[dia]["cierra"]
-        
-        minutos_abre = convertir_hora_a_minutos(hora_abre)
-        minutos_cierra = convertir_hora_a_minutos(hora_cierra)
-        
-        # Personal de apertura: máximo de los 2 bloques antes
-        personal_apertura = 1
-        for i in range(2):
-            minutos_bloque = minutos_abre - (2 - i) * 30
+        try:
+            hora_abre = horarios[dia]["abre"]
+            hora_cierra = horarios[dia]["cierra"]
+            
+            minutos_abre = convertir_hora_a_minutos(hora_abre)
+            minutos_cierra = convertir_hora_a_minutos(hora_cierra)
+            
+            # Personal de apertura: máximo de los 2 bloques antes
+            personal_apertura = 1
+            for i in range(2):
+                minutos_bloque = minutos_abre - (2 - i) * 30
+                bloque_str = minutos_a_bloque(minutos_bloque)
+                if bloque_str in matriz_horas.index:
+                    demanda = int(np.ceil(matriz_horas.loc[bloque_str, dia] * 2))
+                    personal_apertura = max(personal_apertura, demanda)
+            
+            # Personal de cierre: demanda del bloque de cierre + 30min
+            personal_cierre = 1
+            minutos_bloque = minutos_cierre + 30
             bloque_str = minutos_a_bloque(minutos_bloque)
             if bloque_str in matriz_horas.index:
                 demanda = int(np.ceil(matriz_horas.loc[bloque_str, dia] * 2))
-                personal_apertura = max(personal_apertura, demanda)
-        
-        # Personal de cierre: demanda del bloque de cierre + 30min
-        personal_cierre = 1
-        minutos_bloque = minutos_cierra + 30
-        bloque_str = minutos_a_bloque(minutos_bloque)
-        if bloque_str in matriz_horas.index:
-            demanda = int(np.ceil(matriz_horas.loc[bloque_str, dia] * 2))
-            personal_cierre = max(personal_cierre, demanda, 2)  # Mínimo 2 para cierre
-        
-        personal_apertura_opt[dia] = personal_apertura
-        personal_cierre_opt[dia] = personal_cierre
+                personal_cierre = max(personal_cierre, demanda, 2)  # Mínimo 2 para cierre
+            
+            personal_apertura_opt[dia] = personal_apertura
+            personal_cierre_opt[dia] = personal_cierre
+            
+        except Exception as e:
+            # Si hay error, usar valores por defecto
+            personal_apertura_opt[dia] = 1
+            personal_cierre_opt[dia] = 2
+            continue
+    
+    # Retornar el máximo a través de todos los días
+    if len(personal_apertura_opt) > 0 and len(personal_cierre_opt) > 0:
+        return max(personal_apertura_opt.values()), max(personal_cierre_opt.values())
+    else:
+        return 1, 2  # Valores por defecto
     
     # Retornar el máximo a través de todos los días
     return max(personal_apertura_opt.values()), max(personal_cierre_opt.values())
@@ -467,36 +483,39 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
     for dia in dias_orden:
         if dia not in horarios:
             continue
+        
+        try:
+            hora_abre = horarios[dia]["abre"]
+            hora_cierra = horarios[dia]["cierra"]
             
-        hora_abre = horarios[dia]["abre"]
-        hora_cierra = horarios[dia]["cierra"]
-        
-        minutos_abre = convertir_hora_a_minutos(hora_abre)
-        minutos_cierra = convertir_hora_a_minutos(hora_cierra)
-        
-        # APERTURA: 2 bloques antes (1 hora)
-        for i in range(2):
-            minutos_bloque = minutos_abre - (2 - i) * 30
+            minutos_abre = convertir_hora_a_minutos(hora_abre)
+            minutos_cierra = convertir_hora_a_minutos(hora_cierra)
+            
+            # APERTURA: 2 bloques antes (1 hora)
+            for i in range(2):
+                minutos_bloque = minutos_abre - (2 - i) * 30
+                bloque_str = minutos_a_bloque(minutos_bloque)
+                
+                if bloque_str in matriz_personal.index:
+                    matriz_personal.loc[bloque_str, dia] = max(
+                        matriz_personal.loc[bloque_str, dia],
+                        pers_apertura
+                    )
+            
+            # CIERRE: 1 bloque después (30 min)
+            minutos_bloque = minutos_cierre + 30
             bloque_str = minutos_a_bloque(minutos_bloque)
             
             if bloque_str in matriz_personal.index:
                 matriz_personal.loc[bloque_str, dia] = max(
                     matriz_personal.loc[bloque_str, dia],
-                    pers_apertura
+                    pers_cierre
                 )
-        
-        # CIERRE: 1 bloque después (30 min)
-        minutos_bloque = minutos_cierre + 30
-        bloque_str = minutos_a_bloque(minutos_bloque)
-        
-        if bloque_str in matriz_personal.index:
-            matriz_personal.loc[bloque_str, dia] = max(
-                matriz_personal.loc[bloque_str, dia],
-                pers_cierre
-            )
+        except Exception as e:
+            # Si hay error en este día, continuar con el siguiente
+            continue
     
     return matriz_personal
-
 # Calcular matrices de personal
 matriz_personal_sala = calcular_personal_requerido(
     matriz_horas_sala, "SALA", local, dias_orden, 
