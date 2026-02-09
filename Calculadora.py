@@ -382,21 +382,43 @@ except Exception as e:
 # --------------------------------------------------
 def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_apertura, pers_cierre):
     """
-    Calcula personal requerido aplicando restricciones de apertura/cierre
+    Calcula personal requerido aplicando restricciones de apertura/cierre y máximos
     
-    CORRECCIÓN IMPORTANTE:
+    RESTRICCIONES:
     - Apertura: Se aplica en bloques ANTES de abrir
     - Cierre: Se aplica en el bloque de cierre y el anterior (últimos 2 bloques)
-      porque el bloque "después del cierre" no existe en la matriz
+    - Máximos de personal por área:
+      * Sala: 4 personas (5 en Lluria)
+      * Cocina: 5 personas (6 en Lluria)
+    - De lunes a viernes: NO se puede alcanzar el máximo (se resta 1)
+    - Objetivo: minimizar personal (usar ceil en lugar de redondeos generosos)
     """
-    # Convertir horas a personas
+    # Convertir horas a personas (ceil para minimizar personal)
     matriz_personal = np.ceil(matriz_horas * 2).astype(int)
+    
+    # Definir máximos según área y local
+    if local == "LLURIA":
+        max_personal = 6 if area == "COCINA" else 5
+    else:
+        max_personal = 5 if area == "COCINA" else 4
+    
+    # Días laborables donde NO se puede alcanzar el máximo
+    dias_laborables = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES"]
     
     horarios = horarios_locales[local]
     
     for dia in dias_orden:
         if dia not in horarios:
             continue
+        
+        # Determinar máximo efectivo según el día
+        if dia in dias_laborables:
+            max_efectivo = max_personal - 1  # De L-V no se alcanza el máximo
+        else:
+            max_efectivo = max_personal
+        
+        # Aplicar límite máximo a toda la columna del día
+        matriz_personal[dia] = matriz_personal[dia].clip(upper=max_efectivo)
         
         try:
             hora_abre = horarios[dia]["abre"]
@@ -411,9 +433,10 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
                 bloque_str = minutos_a_bloque(minutos_bloque)
                 
                 if bloque_str in matriz_personal.index:
-                    matriz_personal.loc[bloque_str, dia] = max(
-                        matriz_personal.loc[bloque_str, dia],
-                        pers_apertura
+                    # Aplicar mínimo de apertura, pero respetar máximo efectivo
+                    matriz_personal.loc[bloque_str, dia] = min(
+                        max(matriz_personal.loc[bloque_str, dia], pers_apertura),
+                        max_efectivo
                     )
             
             # CIERRE: En el bloque de cierre Y el anterior (últimos 2 bloques)
@@ -422,9 +445,10 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
                 bloque_str = minutos_a_bloque(minutos_bloque)
                 
                 if bloque_str in matriz_personal.index:
-                    matriz_personal.loc[bloque_str, dia] = max(
-                        matriz_personal.loc[bloque_str, dia],
-                        pers_cierre
+                    # Aplicar mínimo de cierre, pero respetar máximo efectivo
+                    matriz_personal.loc[bloque_str, dia] = min(
+                        max(matriz_personal.loc[bloque_str, dia], pers_cierre),
+                        max_efectivo
                     )
         except Exception as e:
             continue
@@ -456,10 +480,20 @@ productividad_efectiva_real = ventas_por_dia / horas_reales_totales
 # --------------------------------------------------
 # OUTPUTS
 # --------------------------------------------------
+# Mostrar límites aplicados según local
+if local == "LLURIA":
+    limites_texto = "**Límites de personal para LLURIA:** Sala máx. 5 (4 L-V) | Cocina máx. 6 (5 L-V)"
+else:
+    limites_texto = f"**Límites de personal para {local}:** Sala máx. 4 (3 L-V) | Cocina máx. 5 (4 L-V)"
+
 st.info(f"""
+{limites_texto}
+
 **Personal de Apertura/Cierre configurado:**
 - **Sala:** {personal_apertura_sala} persona(s) apertura | {personal_cierre_sala} persona(s) cierre
 - **Cocina:** {personal_apertura_cocina} persona(s) apertura | {personal_cierre_cocina} persona(s) cierre
+
+*Nota: Se busca minimizar el personal manteniendo la operación eficiente.*
 """)
 
 st.markdown("---")
@@ -475,7 +509,7 @@ st.header("💼 Productividad Efectiva Detallada por Día")
 st.info("""
 **Productividad Efectiva** = Ventas del día / (Horas Reales Sala + Horas Reales Cocina)
 
-Basado en personal requerido real con restricciones de apertura/cierre.
+Basado en personal requerido real con restricciones de apertura/cierre y límites máximos.
 """)
 
 productividad_df = pd.DataFrame({
@@ -556,6 +590,7 @@ st.info(f"""
 **Restricciones aplicadas:**
 - **Apertura:** {personal_apertura_sala} persona(s) en Sala y {personal_apertura_cocina} persona(s) en Cocina llegan 1 hora antes
 - **Cierre:** {personal_cierre_sala} persona(s) en Sala y {personal_cierre_cocina} persona(s) en Cocina en los últimos bloques
+- **{limites_texto}**
 """)
 
 area_personal = st.selectbox("Selecciona área", ["SALA", "COCINA"])
