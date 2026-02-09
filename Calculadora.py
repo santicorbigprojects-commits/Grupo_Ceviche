@@ -493,6 +493,8 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
     
     horarios = horarios_locales[local]
     
+    bloques_cierre_aplicados = []  # DEBUG
+    
     for dia in dias_orden:
         if dia not in horarios:
             continue
@@ -520,13 +522,22 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
             bloque_str = minutos_a_bloque(minutos_bloque)
             
             if bloque_str in matriz_personal.index:
+                valor_antes = matriz_personal.loc[bloque_str, dia]
                 matriz_personal.loc[bloque_str, dia] = max(
                     matriz_personal.loc[bloque_str, dia],
                     pers_cierre
                 )
+                valor_despues = matriz_personal.loc[bloque_str, dia]
+                bloques_cierre_aplicados.append(f"{dia} {bloque_str}: {valor_antes}→{valor_despues} (cierre={pers_cierre})")  # DEBUG
         except Exception as e:
             # Si hay error en este día, continuar con el siguiente
             continue
+    
+    # DEBUG: Imprimir bloques donde se aplicó cierre
+    if area == "SALA":
+        st.sidebar.markdown(f"**DEBUG {area} - Bloques cierre:**")
+        for bloque_info in bloques_cierre_aplicados[:3]:  # Mostrar solo los primeros 3
+            st.sidebar.text(bloque_info)
     
     return matriz_personal
 
@@ -540,6 +551,14 @@ matriz_personal_cocina = calcular_personal_requerido(
     matriz_horas_cocina, "COCINA", local, dias_orden,
     personal_apertura_cocina, personal_cierre_cocina
 )
+
+# DEBUG: Verificar valores
+st.sidebar.markdown("---")
+st.sidebar.markdown("**🔍 DEBUG - Valores actuales:**")
+st.sidebar.write(f"Apertura Sala: {personal_apertura_sala}")
+st.sidebar.write(f"Cierre Sala: {personal_cierre_sala}")
+st.sidebar.write(f"Apertura Cocina: {personal_apertura_cocina}")
+st.sidebar.write(f"Cierre Cocina: {personal_cierre_cocina}")
 
 # Calcular horas reales
 horas_reales_sala = matriz_personal_sala.sum(axis=0) * 0.5
