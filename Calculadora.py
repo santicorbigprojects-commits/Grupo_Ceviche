@@ -527,12 +527,10 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
             
             if bloque_existe:
                 valor_antes = matriz_personal.loc[bloque_str, dia]
-                matriz_personal.loc[bloque_str, dia] = max(
-                    matriz_personal.loc[bloque_str, dia],
-                    pers_cierre
-                )
+                valor_max = max(matriz_personal.loc[bloque_str, dia], pers_cierre)
+                matriz_personal.loc[bloque_str, dia] = valor_max
                 valor_despues = matriz_personal.loc[bloque_str, dia]
-                bloques_cierre_aplicados.append(f"  → {valor_antes}→{valor_despues} (cierre={pers_cierre})")
+                bloques_cierre_aplicados.append(f"  → antes={valor_antes}, pers_cierre={pers_cierre}, max={valor_max}, despues={valor_despues}")
             else:
                 bloques_cierre_aplicados.append(f"  → ❌ Bloque NO existe en matriz")  # DEBUG
         except Exception as e:
