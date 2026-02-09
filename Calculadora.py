@@ -63,7 +63,7 @@ with st.sidebar:
         help="Usa la cantidad mínima de personal necesaria según la demanda"
     )
     
-    # Valores por defecto o placeholder
+    # Valores por defecto
     if 'personal_apertura_sala' not in st.session_state:
         st.session_state.personal_apertura_sala = 1
         st.session_state.personal_apertura_cocina = 2
@@ -73,7 +73,7 @@ with st.sidebar:
     with st.expander("🍽️ SALA", expanded=not usar_optimizado):
         col1, col2 = st.columns(2)
         with col1:
-            personal_apertura_sala = st.number_input(
+            personal_apertura_sala_input = st.number_input(
                 "Apertura",
                 min_value=1,
                 value=st.session_state.personal_apertura_sala,
@@ -82,7 +82,7 @@ with st.sidebar:
                 disabled=usar_optimizado
             )
         with col2:
-            personal_cierre_sala = st.number_input(
+            personal_cierre_sala_input = st.number_input(
                 "Cierre",
                 min_value=1,
                 value=st.session_state.personal_cierre_sala,
@@ -94,7 +94,7 @@ with st.sidebar:
     with st.expander("👨‍🍳 COCINA", expanded=not usar_optimizado):
         col1, col2 = st.columns(2)
         with col1:
-            personal_apertura_cocina = st.number_input(
+            personal_apertura_cocina_input = st.number_input(
                 "Apertura",
                 min_value=1,
                 value=st.session_state.personal_apertura_cocina,
@@ -103,7 +103,7 @@ with st.sidebar:
                 disabled=usar_optimizado
             )
         with col2:
-            personal_cierre_cocina = st.number_input(
+            personal_cierre_cocina_input = st.number_input(
                 "Cierre",
                 min_value=1,
                 value=st.session_state.personal_cierre_cocina,
@@ -111,6 +111,13 @@ with st.sidebar:
                 key="input_ci_cocina",
                 disabled=usar_optimizado
             )
+    
+    # Actualizar session_state si NO está en modo optimizado
+    if not usar_optimizado:
+        st.session_state.personal_apertura_sala = personal_apertura_sala_input
+        st.session_state.personal_cierre_sala = personal_cierre_sala_input
+        st.session_state.personal_apertura_cocina = personal_apertura_cocina_input
+        st.session_state.personal_cierre_cocina = personal_cierre_cocina_input
 
 # --------------------------------------------------
 # HORARIOS DE APERTURA Y CIERRE
@@ -201,9 +208,6 @@ ventas_df = pd.DataFrame({
     "Monto (€)": [venta_diaria, venta_sala, venta_glovo]
 })
 
-def convertir_hora_a_minutos(hora_str):
-    partes = hora_str.split(':')
-    return int(partes[0]) * 60 + int(partes[1])
 # --------------------------------------------------
 # PARÁMETROS DE LOS MODELOS
 # --------------------------------------------------
@@ -287,7 +291,7 @@ def minutos_a_bloque(minutos):
     horas = minutos // 60
     mins = minutos % 60
     
-    # Normalizar horas >= 24 (ej: 24:30 -> 0:30, 25:00 -> 1:00)
+    # Normalizar horas >= 24
     if horas >= 24:
         horas = horas - 24
     
@@ -435,7 +439,7 @@ def calcular_personal_optimizado(matriz_horas, horarios, local, dias_orden):
             
             # Personal de cierre: demanda del bloque de cierre + 30min
             personal_cierre = 1
-            minutos_bloque = minutos_cierre + 30
+            minutos_bloque = minutos_cierra + 30
             bloque_str = minutos_a_bloque(minutos_bloque)
             if bloque_str in matriz_horas.index:
                 demanda = int(np.ceil(matriz_horas.loc[bloque_str, dia] * 2))
@@ -455,9 +459,6 @@ def calcular_personal_optimizado(matriz_horas, horarios, local, dias_orden):
         return max(personal_apertura_opt.values()), max(personal_cierre_opt.values())
     else:
         return 1, 2  # Valores por defecto
-    
-    # Retornar el máximo a través de todos los días
-    return max(personal_apertura_opt.values()), max(personal_cierre_opt.values())
 
 # Calcular valores optimizados
 horarios = horarios_locales[local]
@@ -476,6 +477,12 @@ if usar_optimizado:
     st.session_state.personal_cierre_sala = cierre_opt_sala
     st.session_state.personal_apertura_cocina = apertura_opt_cocina
     st.session_state.personal_cierre_cocina = cierre_opt_cocina
+else:
+    # Usar valores del usuario (ya actualizados en session_state arriba)
+    personal_apertura_sala = st.session_state.personal_apertura_sala
+    personal_cierre_sala = st.session_state.personal_cierre_sala
+    personal_apertura_cocina = st.session_state.personal_apertura_cocina
+    personal_cierre_cocina = st.session_state.personal_cierre_cocina
 
 # --------------------------------------------------
 # CALCULAR PERSONAL REQUERIDO CON RESTRICCIONES
@@ -522,6 +529,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
             continue
     
     return matriz_personal
+
 # Calcular matrices de personal
 matriz_personal_sala = calcular_personal_requerido(
     matriz_horas_sala, "SALA", local, dias_orden, 
@@ -548,13 +556,13 @@ productividad_efectiva_real = ventas_por_dia / horas_reales_totales
 # OUTPUTS - TABLAS PRINCIPALES
 # --------------------------------------------------
 
-# Mostrar valores optimizados si están disponibles
-if usar_optimizado:
-    st.success(f"""
-    🎯 **Valores Optimizados Aplicados:**
-    - **Sala:** {apertura_opt_sala} persona(s) apertura | {cierre_opt_sala} persona(s) cierre
-    - **Cocina:** {apertura_opt_cocina} persona(s) apertura | {cierre_opt_cocina} persona(s) cierre
-    """)
+# Mostrar valores usados
+st.info(f"""
+**Personal de Apertura/Cierre configurado:**
+- **Sala:** {personal_apertura_sala} persona(s) apertura | {personal_cierre_sala} persona(s) cierre
+- **Cocina:** {personal_apertura_cocina} persona(s) apertura | {personal_cierre_cocina} persona(s) cierre
+{f"*(Optimizado automáticamente)*" if usar_optimizado else ""}
+""")
 
 st.markdown("---")
 st.header("💰 Ventas diarias")
