@@ -521,14 +521,20 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
             minutos_bloque = minutos_cierre + 30
             bloque_str = minutos_a_bloque(minutos_bloque)
             
-            if bloque_str in matriz_personal.index:
+            # DEBUG: Verificar si el bloque existe
+            bloque_existe = bloque_str in matriz_personal.index
+            bloques_cierre_aplicados.append(f"{dia} {hora_cierra}+30min={bloque_str} existe={bloque_existe}")
+            
+            if bloque_existe:
                 valor_antes = matriz_personal.loc[bloque_str, dia]
                 matriz_personal.loc[bloque_str, dia] = max(
                     matriz_personal.loc[bloque_str, dia],
                     pers_cierre
                 )
                 valor_despues = matriz_personal.loc[bloque_str, dia]
-                bloques_cierre_aplicados.append(f"{dia} {bloque_str}: {valor_antes}→{valor_despues} (cierre={pers_cierre})")  # DEBUG
+                bloques_cierre_aplicados.append(f"  → {valor_antes}→{valor_despues} (cierre={pers_cierre})")
+            else:
+                bloques_cierre_aplicados.append(f"  → ❌ Bloque NO existe en matriz")  # DEBUG
         except Exception as e:
             # Si hay error en este día, continuar con el siguiente
             continue
@@ -536,7 +542,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
     # DEBUG: Imprimir bloques donde se aplicó cierre
     if area == "SALA":
         st.sidebar.markdown(f"**DEBUG {area} - Bloques cierre:**")
-        for bloque_info in bloques_cierre_aplicados[:3]:  # Mostrar solo los primeros 3
+        for bloque_info in bloques_cierre_aplicados:  # Mostrar TODOS
             st.sidebar.text(bloque_info)
     
     return matriz_personal
