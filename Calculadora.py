@@ -692,7 +692,7 @@ fig_personal = px.imshow(
 )
 
 fig_personal.update_layout(
-    height=800, xaxis_title="Día de la semana", yaxis_título="Hora del día",
+    height=800, xaxis_title="Día de la semana", yaxis_title="Hora del día",
     yaxis=dict(autorange="reversed"), xaxis=dict(side="bottom")
 )
 
