@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
 # --------------------------------------------------
 # CONFIGURACIÓN STREAMLIT
@@ -57,67 +56,43 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("👥 Personal de Apertura/Cierre")
     
-    usar_optimizado = st.checkbox(
-        "🎯 Usar valores optimizados",
-        value=False,
-        help="Usa la cantidad mínima de personal necesaria según la demanda"
-    )
-    
-    # Valores por defecto
-    if 'personal_apertura_sala' not in st.session_state:
-        st.session_state.personal_apertura_sala = 1
-        st.session_state.personal_apertura_cocina = 2
-        st.session_state.personal_cierre_sala = 2
-        st.session_state.personal_cierre_cocina = 2
-    
-    with st.expander("🍽️ SALA", expanded=not usar_optimizado):
+    with st.expander("🍽️ SALA", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
-            personal_apertura_sala_input = st.number_input(
+            personal_apertura_sala = st.number_input(
                 "Apertura",
                 min_value=1,
-                value=st.session_state.personal_apertura_sala,
+                value=1,
                 step=1,
-                key="input_ap_sala",
-                disabled=usar_optimizado
+                key="ap_sala"
             )
         with col2:
-            personal_cierre_sala_input = st.number_input(
+            personal_cierre_sala = st.number_input(
                 "Cierre",
                 min_value=1,
-                value=st.session_state.personal_cierre_sala,
+                value=2,
                 step=1,
-                key="input_ci_sala",
-                disabled=usar_optimizado
+                key="ci_sala"
             )
     
-    with st.expander("👨‍🍳 COCINA", expanded=not usar_optimizado):
+    with st.expander("👨‍🍳 COCINA", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
-            personal_apertura_cocina_input = st.number_input(
+            personal_apertura_cocina = st.number_input(
                 "Apertura",
                 min_value=1,
-                value=st.session_state.personal_apertura_cocina,
+                value=2,
                 step=1,
-                key="input_ap_cocina",
-                disabled=usar_optimizado
+                key="ap_cocina"
             )
         with col2:
-            personal_cierre_cocina_input = st.number_input(
+            personal_cierre_cocina = st.number_input(
                 "Cierre",
                 min_value=1,
-                value=st.session_state.personal_cierre_cocina,
+                value=2,
                 step=1,
-                key="input_ci_cocina",
-                disabled=usar_optimizado
+                key="ci_cocina"
             )
-    
-    # Actualizar session_state si NO está en modo optimizado
-    if not usar_optimizado:
-        st.session_state.personal_apertura_sala = personal_apertura_sala_input
-        st.session_state.personal_cierre_sala = personal_cierre_sala_input
-        st.session_state.personal_apertura_cocina = personal_apertura_cocina_input
-        st.session_state.personal_cierre_cocina = personal_cierre_cocina_input
 
 # --------------------------------------------------
 # HORARIOS DE APERTURA Y CIERRE
@@ -259,7 +234,7 @@ else:
     factor_sala, factor_cocina = 0, 0
 
 # --------------------------------------------------
-# CÁLCULO PRODUCTIVIDAD Y HORAS TEÓRICAS (INTERNO)
+# CÁLCULO PRODUCTIVIDAD Y HORAS TEÓRICAS
 # --------------------------------------------------
 prod_sala = []
 for d in dias:
@@ -287,14 +262,10 @@ def convertir_hora_a_minutos(hora_str):
     return int(partes[0]) * 60 + int(partes[1])
 
 def minutos_a_bloque(minutos):
-    """Convierte minutos a formato de bloque HH:MM, normalizando horas >= 24"""
     horas = minutos // 60
     mins = minutos % 60
-    
-    # Normalizar horas >= 24
     if horas >= 24:
         horas = horas - 24
-    
     return f"{horas}:{mins:02d}"
 
 def ordenar_bloques_horarios(bloques):
@@ -407,94 +378,22 @@ except Exception as e:
     st.stop()
 
 # --------------------------------------------------
-# FUNCIÓN DE OPTIMIZACIÓN
-# --------------------------------------------------
-def calcular_personal_optimizado(matriz_horas, horarios, local, dias_orden):
-    """
-    Calcula el personal mínimo necesario para apertura y cierre
-    basándose en la demanda de los bloques cercanos
-    """
-    personal_apertura_opt = {}
-    personal_cierre_opt = {}
-    
-    for dia in dias_orden:
-        if dia not in horarios:
-            continue
-        
-        try:
-            hora_abre = horarios[dia]["abre"]
-            hora_cierra = horarios[dia]["cierra"]
-            
-            minutos_abre = convertir_hora_a_minutos(hora_abre)
-            minutos_cierra = convertir_hora_a_minutos(hora_cierra)
-            
-            # Personal de apertura: máximo de los 2 bloques antes
-            personal_apertura = 1
-            for i in range(2):
-                minutos_bloque = minutos_abre - (2 - i) * 30
-                bloque_str = minutos_a_bloque(minutos_bloque)
-                if bloque_str in matriz_horas.index:
-                    demanda = int(np.ceil(matriz_horas.loc[bloque_str, dia] * 2))
-                    personal_apertura = max(personal_apertura, demanda)
-            
-            # Personal de cierre: demanda del bloque de cierre + 30min
-            personal_cierre = 1
-            minutos_bloque = minutos_cierra + 30
-            bloque_str = minutos_a_bloque(minutos_bloque)
-            if bloque_str in matriz_horas.index:
-                demanda = int(np.ceil(matriz_horas.loc[bloque_str, dia] * 2))
-                personal_cierre = max(personal_cierre, demanda, 2)  # Mínimo 2 para cierre
-            
-            personal_apertura_opt[dia] = personal_apertura
-            personal_cierre_opt[dia] = personal_cierre
-            
-        except Exception as e:
-            # Si hay error, usar valores por defecto
-            personal_apertura_opt[dia] = 1
-            personal_cierre_opt[dia] = 2
-            continue
-    
-    # Retornar el máximo a través de todos los días
-    if len(personal_apertura_opt) > 0 and len(personal_cierre_opt) > 0:
-        return max(personal_apertura_opt.values()), max(personal_cierre_opt.values())
-    else:
-        return 1, 2  # Valores por defecto
-
-# Calcular valores optimizados
-horarios = horarios_locales[local]
-apertura_opt_sala, cierre_opt_sala = calcular_personal_optimizado(matriz_horas_sala, horarios, local, dias_orden)
-apertura_opt_cocina, cierre_opt_cocina = calcular_personal_optimizado(matriz_horas_cocina, horarios, local, dias_orden)
-
-# Si el usuario activó optimización, usar valores optimizados
-if usar_optimizado:
-    personal_apertura_sala = apertura_opt_sala
-    personal_cierre_sala = cierre_opt_sala
-    personal_apertura_cocina = apertura_opt_cocina
-    personal_cierre_cocina = cierre_opt_cocina
-    
-    # Actualizar session state
-    st.session_state.personal_apertura_sala = apertura_opt_sala
-    st.session_state.personal_cierre_sala = cierre_opt_sala
-    st.session_state.personal_apertura_cocina = apertura_opt_cocina
-    st.session_state.personal_cierre_cocina = cierre_opt_cocina
-else:
-    # Usar valores del usuario (ya actualizados en session_state arriba)
-    personal_apertura_sala = st.session_state.personal_apertura_sala
-    personal_cierre_sala = st.session_state.personal_cierre_sala
-    personal_apertura_cocina = st.session_state.personal_apertura_cocina
-    personal_cierre_cocina = st.session_state.personal_cierre_cocina
-
-# --------------------------------------------------
 # CALCULAR PERSONAL REQUERIDO CON RESTRICCIONES
 # --------------------------------------------------
 def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_apertura, pers_cierre):
-    # Convertir horas a personas (cada bloque = 30min, cada persona = 0.5h)
+    """
+    Calcula personal requerido aplicando restricciones de apertura/cierre
+    
+    CORRECCIÓN IMPORTANTE:
+    - Apertura: Se aplica en bloques ANTES de abrir
+    - Cierre: Se aplica en el bloque de cierre y el anterior (últimos 2 bloques)
+      porque el bloque "después del cierre" no existe en la matriz
+    """
+    # Convertir horas a personas
     matriz_personal = np.ceil(matriz_horas * 2).astype(int)
     
     horarios = horarios_locales[local]
     
-    bloques_cierre_aplicados = []  # DEBUG
-    
     for dia in dias_orden:
         if dia not in horarios:
             continue
@@ -506,7 +405,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
             minutos_abre = convertir_hora_a_minutos(hora_abre)
             minutos_cierra = convertir_hora_a_minutos(hora_cierra)
             
-            # APERTURA: 2 bloques antes (1 hora)
+            # APERTURA: 2 bloques ANTES de abrir (1 hora antes)
             for i in range(2):
                 minutos_bloque = minutos_abre - (2 - i) * 30
                 bloque_str = minutos_a_bloque(minutos_bloque)
@@ -517,31 +416,18 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
                         pers_apertura
                     )
             
-            # CIERRE: 1 bloque después (30 min)
-            minutos_bloque = minutos_cierre + 30
-            bloque_str = minutos_a_bloque(minutos_bloque)
-            
-            # DEBUG: Verificar si el bloque existe
-            bloque_existe = bloque_str in matriz_personal.index
-            bloques_cierre_aplicados.append(f"{dia} {hora_cierra}+30min={bloque_str} existe={bloque_existe}")
-            
-            if bloque_existe:
-                valor_antes = matriz_personal.loc[bloque_str, dia]
-                valor_max = max(matriz_personal.loc[bloque_str, dia], pers_cierre)
-                matriz_personal.loc[bloque_str, dia] = valor_max
-                valor_despues = matriz_personal.loc[bloque_str, dia]
-                bloques_cierre_aplicados.append(f"  → antes={valor_antes}, pers_cierre={pers_cierre}, max={valor_max}, despues={valor_despues}")
-            else:
-                bloques_cierre_aplicados.append(f"  → ❌ Bloque NO existe en matriz")  # DEBUG
+            # CIERRE: En el bloque de cierre Y el anterior (últimos 2 bloques)
+            for i in range(2):
+                minutos_bloque = minutos_cierra - i * 30
+                bloque_str = minutos_a_bloque(minutos_bloque)
+                
+                if bloque_str in matriz_personal.index:
+                    matriz_personal.loc[bloque_str, dia] = max(
+                        matriz_personal.loc[bloque_str, dia],
+                        pers_cierre
+                    )
         except Exception as e:
-            # Si hay error en este día, continuar con el siguiente
             continue
-    
-    # DEBUG: Imprimir bloques donde se aplicó cierre
-    if area == "SALA":
-        st.sidebar.markdown(f"**DEBUG {area} - Bloques cierre:**")
-        for bloque_info in bloques_cierre_aplicados:  # Mostrar TODOS
-            st.sidebar.text(bloque_info)
     
     return matriz_personal
 
@@ -556,14 +442,6 @@ matriz_personal_cocina = calcular_personal_requerido(
     personal_apertura_cocina, personal_cierre_cocina
 )
 
-# DEBUG: Verificar valores
-st.sidebar.markdown("---")
-st.sidebar.markdown("**🔍 DEBUG - Valores actuales:**")
-st.sidebar.write(f"Apertura Sala: {personal_apertura_sala}")
-st.sidebar.write(f"Cierre Sala: {personal_cierre_sala}")
-st.sidebar.write(f"Apertura Cocina: {personal_apertura_cocina}")
-st.sidebar.write(f"Cierre Cocina: {personal_cierre_cocina}")
-
 # Calcular horas reales
 horas_reales_sala = matriz_personal_sala.sum(axis=0) * 0.5
 horas_reales_cocina = matriz_personal_cocina.sum(axis=0) * 0.5
@@ -576,15 +454,12 @@ ventas_por_dia = matriz_ventas.sum(axis=0)
 productividad_efectiva_real = ventas_por_dia / horas_reales_totales
 
 # --------------------------------------------------
-# OUTPUTS - TABLAS PRINCIPALES
+# OUTPUTS
 # --------------------------------------------------
-
-# Mostrar valores usados
 st.info(f"""
 **Personal de Apertura/Cierre configurado:**
 - **Sala:** {personal_apertura_sala} persona(s) apertura | {personal_cierre_sala} persona(s) cierre
 - **Cocina:** {personal_apertura_cocina} persona(s) apertura | {personal_cierre_cocina} persona(s) cierre
-{f"*(Optimizado automáticamente)*" if usar_optimizado else ""}
 """)
 
 st.markdown("---")
@@ -592,7 +467,7 @@ st.header("💰 Ventas diarias")
 st.dataframe(ventas_df.round(2), use_container_width=True)
 
 # --------------------------------------------------
-# PRODUCTIVIDAD EFECTIVA DETALLADA
+# PRODUCTIVIDAD EFECTIVA
 # --------------------------------------------------
 st.markdown("---")
 st.header("💼 Productividad Efectiva Detallada por Día")
@@ -614,7 +489,7 @@ productividad_df = pd.DataFrame({
     ] for dia in dias_orden}
 })
 
-# Agregar columnas de totales
+# Totales
 total_ventas = ventas_por_dia.sum()
 total_horas_sala = horas_reales_sala.sum()
 total_horas_cocina = horas_reales_cocina.sum()
@@ -622,38 +497,25 @@ total_horas = horas_reales_totales.sum()
 productividad_promedio = total_ventas / total_horas
 
 productividad_df["TOTAL SEMANAL"] = [
-    total_ventas,
-    total_horas_sala,
-    total_horas_cocina,
-    total_horas,
-    productividad_promedio
+    total_ventas, total_horas_sala, total_horas_cocina, total_horas, productividad_promedio
 ]
 
 productividad_df["PROMEDIO SEMANAL"] = [
-    total_ventas / 7,
-    total_horas_sala / 7,
-    total_horas_cocina / 7,
-    total_horas / 7,
-    productividad_promedio
+    total_ventas / 7, total_horas_sala / 7, total_horas_cocina / 7, total_horas / 7, productividad_promedio
 ]
 
-# Función auxiliar para formatear
 def formatear_productividad(df):
     df_formatted = df.copy()
-    
     for col in df.columns:
         if col == "Métrica":
             continue
-        
         for idx in range(len(df)):
             metrica = df.loc[idx, "Métrica"]
             valor = df.loc[idx, col]
-            
             if metrica in ["Ventas (€)", "Productividad Efectiva (€/h)"]:
                 df_formatted.loc[idx, col] = f"€{valor:.2f}"
-            else:  # Horas
+            else:
                 df_formatted.loc[idx, col] = f"{valor:.2f}h"
-    
     return df_formatted
 
 st.dataframe(formatear_productividad(productividad_df), use_container_width=True)
@@ -667,32 +529,25 @@ st.header("💰 Distribución Promedio de Ventas Semanales")
 fig_ventas = px.imshow(
     matriz_ventas,
     labels=dict(x="Día de la semana", y="Hora del día", color="Ventas (€)"),
-    x=matriz_ventas.columns,
-    y=matriz_ventas.index,
-    color_continuous_scale="Greens",
-    aspect="auto",
+    x=matriz_ventas.columns, y=matriz_ventas.index,
+    color_continuous_scale="Greens", aspect="auto",
     title=f"Distribución Promedio de Ventas Semanales ({local})"
 )
 
 fig_ventas.update_layout(
-    height=800,
-    xaxis_title="Día de la semana",
-    yaxis_title="Hora del día",
-    yaxis=dict(autorange="reversed"),
-    xaxis=dict(side="bottom")
+    height=800, xaxis_title="Día de la semana", yaxis_title="Hora del día",
+    yaxis=dict(autorange="reversed"), xaxis=dict(side="bottom")
 )
 
 fig_ventas.update_traces(
-    text=matriz_ventas.round(0),
-    texttemplate="€%{text}",
-    textfont={"size": 7},
+    text=matriz_ventas.round(0), texttemplate="€%{text}", textfont={"size": 7},
     hovertemplate='Día: %{x}<br>Hora: %{y}<br>Ventas: €%{z:.2f}<extra></extra>'
 )
 
 st.plotly_chart(fig_ventas, use_container_width=True)
 
 # --------------------------------------------------
-# DISTRIBUCIÓN DE PERSONAL REQUERIDO
+# DISTRIBUCIÓN DE PERSONAL
 # --------------------------------------------------
 st.markdown("---")
 st.header("👥 Distribución de Personal Requerido por Bloques de 30 min")
@@ -700,45 +555,34 @@ st.header("👥 Distribución de Personal Requerido por Bloques de 30 min")
 st.info(f"""
 **Restricciones aplicadas:**
 - **Apertura:** {personal_apertura_sala} persona(s) en Sala y {personal_apertura_cocina} persona(s) en Cocina llegan 1 hora antes
-- **Cierre:** {personal_cierre_sala} persona(s) en Sala y {personal_cierre_cocina} persona(s) en Cocina se quedan 30 min después
+- **Cierre:** {personal_cierre_sala} persona(s) en Sala y {personal_cierre_cocina} persona(s) en Cocina en los últimos bloques
 """)
 
-area_personal = st.selectbox(
-    "Selecciona área para visualizar",
-    ["SALA", "COCINA"]
-)
-
+area_personal = st.selectbox("Selecciona área", ["SALA", "COCINA"])
 matriz_personal_area = matriz_personal_sala if area_personal == "SALA" else matriz_personal_cocina
 
 fig_personal = px.imshow(
     matriz_personal_area,
     labels=dict(x="Día de la semana", y="Hora del día", color="Personal"),
-    x=matriz_personal_area.columns,
-    y=matriz_personal_area.index,
-    color_continuous_scale="Blues",
-    aspect="auto",
+    x=matriz_personal_area.columns, y=matriz_personal_area.index,
+    color_continuous_scale="Blues", aspect="auto",
     title=f"Personal Requerido - {area_personal} ({local})"
 )
 
 fig_personal.update_layout(
-    height=800,
-    xaxis_title="Día de la semana",
-    yaxis_title="Hora del día",
-    yaxis=dict(autorange="reversed"),
-    xaxis=dict(side="bottom")
+    height=800, xaxis_title="Día de la semana", yaxis_title="Hora del día",
+    yaxis=dict(autorange="reversed"), xaxis=dict(side="bottom")
 )
 
 fig_personal.update_traces(
-    text=matriz_personal_area,
-    texttemplate="%{text}",
-    textfont={"size": 8},
+    text=matriz_personal_area, texttemplate="%{text}", textfont={"size": 8},
     hovertemplate='Día: %{x}<br>Hora: %{y}<br>Personal: %{z}<extra></extra>'
 )
 
 st.plotly_chart(fig_personal, use_container_width=True)
 
 # --------------------------------------------------
-# EXPORTAR DATOS
+# EXPORTAR
 # --------------------------------------------------
 st.markdown("---")
 st.subheader("💾 Exportar datos")
@@ -746,28 +590,11 @@ st.subheader("💾 Exportar datos")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    csv_personal_sala = matriz_personal_sala.to_csv(index=True)
-    st.download_button(
-        label="⬇️ Personal SALA",
-        data=csv_personal_sala,
-        file_name=f"personal_sala_{local}.csv",
-        mime="text/csv"
-    )
-
+    st.download_button("⬇️ Personal SALA", matriz_personal_sala.to_csv(index=True),
+                      f"personal_sala_{local}.csv", "text/csv")
 with col2:
-    csv_personal_cocina = matriz_personal_cocina.to_csv(index=True)
-    st.download_button(
-        label="⬇️ Personal COCINA",
-        data=csv_personal_cocina,
-        file_name=f"personal_cocina_{local}.csv",
-        mime="text/csv"
-    )
-
+    st.download_button("⬇️ Personal COCINA", matriz_personal_cocina.to_csv(index=True),
+                      f"personal_cocina_{local}.csv", "text/csv")
 with col3:
-    csv_prod = productividad_df.to_csv(index=False)
-    st.download_button(
-        label="⬇️ Productividad",
-        data=csv_prod,
-        file_name=f"productividad_{local}.csv",
-        mime="text/csv"
-    )
+    st.download_button("⬇️ Productividad", productividad_df.to_csv(index=False),
+                      f"productividad_{local}.csv", "text/csv")
