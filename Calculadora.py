@@ -276,7 +276,7 @@ def minutos_a_bloque(minutos):
     horas = minutos // 60
     mins = minutos % 60
     if horas >= 24:
-        horas = horas - 24
+        horas = horas % 24
     return f"{horas}:{mins:02d}"
 
 def ordenar_bloques_horarios(bloques):
@@ -395,44 +395,50 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
     """
     Calcula personal requerido con restricciones automáticas realistas
     
-    RESTRICCIONES AUTOMÁTICAS IMPLEMENTADAS:
-    
-    1. AJUSTE GLOBAL: Reduce horas calculadas por factor configurable (default 85%)
-       - El modelo tiende a sobrestimar, esto corrige sistemáticamente
-    
-    2. LÍMITES MÁXIMOS:
-       - Sala: 4 personas (5 en Lluria)
-       - Cocina: 5 personas (6 en Lluria)
-       - L-V: -1 persona al máximo (días laborables menos personal)
-    
-    3. UMBRAL MÍNIMO DE ACTIVIDAD:
-       - Bloques con <0.25 horas (15 min) → se eliminan (ruido del modelo)
-       - Evita tener personal ocioso en bloques de muy baja actividad
-    
-    4. SUAVIZADO TEMPORAL:
-       - Evita picos aislados: si un bloque tiene mucho más personal que vecinos, se reduce
-       - Simula la realidad: el personal no cambia dramáticamente cada 30 min
-    
-    5. PERSONAL MÍNIMO OPERATIVO:
-       - Siempre al menos 1 persona en horario de operación
-       - Durante apertura/cierre: mínimos configurados
-    
-    6. CONSOLIDACIÓN DE BLOQUES CONTIGUOS:
-       - Si 2-3 bloques consecutivos tienen bajo personal, se consolidan
-       - Más eficiente tener 1 persona 1.5h que 1 persona en 3 bloques de 30min
+    CORRECCIÓN PARA FINES DE SEMANA:
+    - Implementa búsqueda inteligente de bloques disponibles
+    - Si el bloque exacto calculado no existe en la matriz, busca el más cercano
+    - Esto soluciona el problema de LLURIA sábado/domingo que abre a las 9:00
     """
     
-    # 1. AJUSTE GLOBAL - Reducir horas según factor
+    # Función auxiliar para encontrar bloque disponible más cercano
+    def encontrar_bloque_cercano(minutos_objetivo, bloques_disponibles):
+        """
+        Encuentra el bloque disponible más cercano al objetivo.
+        Crucial para horarios tempranos como LLURIA fines de semana (9:00)
+        """
+        bloque_ideal = minutos_a_bloque(minutos_objetivo)
+        
+        # Si existe el bloque ideal, usarlo
+        if bloque_ideal in bloques_disponibles:
+            return bloque_ideal
+        
+        # Si no, convertir todos los bloques a minutos y encontrar el más cercano
+        mejor_bloque = None
+        menor_diferencia = float('inf')
+        
+        for bloque in bloques_disponibles:
+            partes = bloque.split(':')
+            minutos_bloque = int(partes[0]) * 60 + int(partes[1])
+            diferencia = abs(minutos_bloque - minutos_objetivo)
+            
+            if diferencia < menor_diferencia:
+                menor_diferencia = diferencia
+                mejor_bloque = bloque
+        
+        return mejor_bloque
+    
+    # 1. AJUSTE GLOBAL
     matriz_horas_ajustada = matriz_horas * (factor_ajuste / 100.0)
     
-    # 2. ELIMINAR RUIDO - Bloques con actividad muy baja
-    umbral_minimo = 0.25  # 15 minutos
+    # 2. ELIMINAR RUIDO
+    umbral_minimo = 0.25
     matriz_horas_ajustada[matriz_horas_ajustada < umbral_minimo] = 0
     
     # 3. Convertir horas a personas
     matriz_personal = np.ceil(matriz_horas_ajustada * 2).astype(int)
     
-    # 4. LÍMITES MÁXIMOS según área y local
+    # 4. LÍMITES MÁXIMOS
     if local == "LLURIA":
         max_personal = 6 if area == "COCINA" else 5
     else:
@@ -441,12 +447,13 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
     dias_laborables = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES"]
     
     horarios = horarios_locales[local]
+    bloques_disponibles = list(matriz_personal.index)
     
     for dia in dias_orden:
         if dia not in horarios:
             continue
         
-        # Determinar máximo efectivo según el día
+        # Determinar máximo efectivo
         if dia in dias_laborables:
             max_efectivo = max_personal - 1
         else:
@@ -455,7 +462,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
         # Aplicar límite máximo
         matriz_personal[dia] = matriz_personal[dia].clip(upper=max_efectivo)
         
-        # 5. SUAVIZADO TEMPORAL - Evitar picos aislados
+        # 5. SUAVIZADO TEMPORAL
         valores_dia = matriz_personal[dia].values
         for i in range(1, len(valores_dia) - 1):
             if valores_dia[i] > 0:
@@ -464,13 +471,12 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
                 
                 if vecinos_validos:
                     promedio_vecinos = np.mean(vecinos_validos)
-                    # Si el bloque actual es 2+ personas más que vecinos, suavizar
                     if valores_dia[i] > promedio_vecinos + 1.5:
                         valores_dia[i] = int(np.ceil(promedio_vecinos + 1))
         
         matriz_personal[dia] = valores_dia
         
-        # 6. Aplicar restricciones de apertura/cierre
+        # 6. Aplicar restricciones de apertura/cierre CON BÚSQUEDA INTELIGENTE
         try:
             hora_abre = horarios[dia]["abre"]
             hora_cierra = horarios[dia]["cierra"]
@@ -478,31 +484,36 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
             minutos_abre = convertir_hora_a_minutos(hora_abre)
             minutos_cierra = convertir_hora_a_minutos(hora_cierra)
             
-            # APERTURA: 2 bloques ANTES de abrir
-            for i in range(2):
-                minutos_bloque = minutos_abre - (2 - i) * 30
-                bloque_str = minutos_a_bloque(minutos_bloque)
+            # APERTURA: Buscar hasta 2 bloques antes de abrir
+            bloques_apertura_aplicados = 0
+            for i in range(4):  # Buscar hasta 4 bloques (2 horas) antes
+                minutos_bloque = minutos_abre - (i + 1) * 30
+                bloque_str = encontrar_bloque_cercano(minutos_bloque, bloques_disponibles)
                 
-                if bloque_str in matriz_personal.index:
+                if bloque_str and bloques_apertura_aplicados < 2:
                     matriz_personal.loc[bloque_str, dia] = min(
                         max(matriz_personal.loc[bloque_str, dia], pers_apertura),
                         max_efectivo
                     )
+                    bloques_apertura_aplicados += 1
             
-            # CIERRE: En el bloque de cierre Y el anterior
-            for i in range(2):
+            # CIERRE: Buscar bloques alrededor del cierre
+            bloques_cierre_aplicados = 0
+            for i in range(4):  # Buscar hasta 4 bloques alrededor del cierre
                 minutos_bloque = minutos_cierra - i * 30
-                bloque_str = minutos_a_bloque(minutos_bloque)
+                bloque_str = encontrar_bloque_cercano(minutos_bloque, bloques_disponibles)
                 
-                if bloque_str in matriz_personal.index:
+                if bloque_str and bloques_cierre_aplicados < 2:
                     matriz_personal.loc[bloque_str, dia] = min(
                         max(matriz_personal.loc[bloque_str, dia], pers_cierre),
                         max_efectivo
                     )
+                    bloques_cierre_aplicados += 1
+                    
         except Exception as e:
             continue
     
-    # 7. CONSOLIDACIÓN - Eliminar personal en bloques aislados muy pequeños
+    # 7. CONSOLIDACIÓN
     for dia in dias_orden:
         if dia not in matriz_personal.columns:
             continue
@@ -510,11 +521,9 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
         valores = matriz_personal[dia].values
         for i in range(len(valores)):
             if valores[i] == 1:
-                # Verificar si está aislado (sin actividad antes y después)
                 antes = valores[i-1] if i > 0 else 0
                 despues = valores[i+1] if i < len(valores)-1 else 0
                 
-                # Si está completamente aislado y no es apertura/cierre, eliminar
                 if antes == 0 and despues == 0:
                     valores[i] = 0
         
@@ -522,7 +531,7 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
     
     return matriz_personal
 
-# Calcular matrices de personal CON AJUSTE
+# Calcular matrices de personal
 matriz_personal_sala = calcular_personal_requerido(
     matriz_horas_sala, "SALA", local, dias_orden, 
     personal_apertura_sala, personal_cierre_sala, factor_ajuste_horas
@@ -538,12 +547,10 @@ horas_reales_sala = matriz_personal_sala.sum(axis=0) * 0.5
 horas_reales_cocina = matriz_personal_cocina.sum(axis=0) * 0.5
 horas_reales_totales = horas_reales_sala + horas_reales_cocina
 
-# Calcular horas TEÓRICAS (sin ajustar) para comparación
+# Calcular horas TEÓRICAS para referencia
 matriz_personal_sala_teorico = np.ceil(matriz_horas_sala * 2).astype(int)
 matriz_personal_cocina_teorico = np.ceil(matriz_horas_cocina * 2).astype(int)
-horas_teoricas_sala = matriz_personal_sala_teorico.sum(axis=0) * 0.5
-horas_teoricas_cocina = matriz_personal_cocina_teorico.sum(axis=0) * 0.5
-horas_teoricas_totales = horas_teoricas_sala + horas_teoricas_cocina
+horas_teoricas_totales = (matriz_personal_sala_teorico.sum(axis=0) + matriz_personal_cocina_teorico.sum(axis=0)) * 0.5
 
 # Calcular ventas por día
 ventas_por_dia = matriz_ventas.sum(axis=0)
@@ -573,6 +580,7 @@ st.success(f"""
 - 🎯 Eliminación de ruido: bloques <15 min de actividad
 - 📊 Suavizado temporal: evita picos aislados irreales
 - 🔄 Consolidación: elimina bloques aislados ineficientes
+- 🔍 Búsqueda inteligente: encuentra bloques óptimos para apertura/cierre (especialmente en fines de semana)
 
 **Resultado:**
 - Horas teóricas (modelo original): **{horas_teoricas_totales.sum():.1f}h/semana**
@@ -587,30 +595,6 @@ st.success(f"""
 st.markdown("---")
 st.header("💰 Ventas diarias")
 st.dataframe(ventas_df.round(2), use_container_width=True)
-
-# --------------------------------------------------
-# COMPARACIÓN MODELO TEÓRICO VS AJUSTADO
-# --------------------------------------------------
-st.markdown("---")
-st.header("📊 Comparación: Modelo Teórico vs Ajustado")
-
-comparacion_df = pd.DataFrame({
-    "Métrica": ["Horas Sala", "Horas Cocina", "Horas Totales"],
-    **{dia: [
-        f"{horas_teoricas_sala[dia]:.1f}h → {horas_reales_sala[dia]:.1f}h",
-        f"{horas_teoricas_cocina[dia]:.1f}h → {horas_reales_cocina[dia]:.1f}h",
-        f"{horas_teoricas_totales[dia]:.1f}h → {horas_reales_totales[dia]:.1f}h"
-    ] for dia in dias_orden}
-})
-
-comparacion_df["TOTAL"] = [
-    f"{horas_teoricas_sala.sum():.1f}h → {horas_reales_sala.sum():.1f}h",
-    f"{horas_teoricas_cocina.sum():.1f}h → {horas_reales_cocina.sum():.1f}h",
-    f"{horas_teoricas_totales.sum():.1f}h → {horas_reales_totales.sum():.1f}h"
-]
-
-st.info("**Formato:** Teórico → Ajustado | Muestra la reducción de horas por las restricciones automáticas")
-st.dataframe(comparacion_df, use_container_width=True)
 
 # --------------------------------------------------
 # PRODUCTIVIDAD EFECTIVA
@@ -708,7 +692,7 @@ fig_personal = px.imshow(
 )
 
 fig_personal.update_layout(
-    height=800, xaxis_title="Día de la semana", yaxis_title="Hora del día",
+    height=800, xaxis_title="Día de la semana", yaxis_título="Hora del día",
     yaxis=dict(autorange="reversed"), xaxis=dict(side="bottom")
 )
 
