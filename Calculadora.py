@@ -283,8 +283,14 @@ def convertir_hora_a_minutos(hora_str):
     return int(partes[0]) * 60 + int(partes[1])
 
 def minutos_a_bloque(minutos):
+    """Convierte minutos a formato de bloque HH:MM, normalizando horas >= 24"""
     horas = minutos // 60
     mins = minutos % 60
+    
+    # Normalizar horas >= 24 (ej: 24:30 -> 0:30, 25:00 -> 1:00)
+    if horas >= 24:
+        horas = horas - 24
+    
     return f"{horas}:{mins:02d}"
 
 def ordenar_bloques_horarios(bloques):
@@ -600,13 +606,26 @@ productividad_df["PROMEDIO SEMANAL"] = [
     productividad_promedio
 ]
 
-st.dataframe(
-    productividad_df.style.format({
-        col: "€{:.2f}" if col != "Métrica" else "{}" 
-        for col in productividad_df.columns
-    }),
-    use_container_width=True
-)
+# Función auxiliar para formatear
+def formatear_productividad(df):
+    df_formatted = df.copy()
+    
+    for col in df.columns:
+        if col == "Métrica":
+            continue
+        
+        for idx in range(len(df)):
+            metrica = df.loc[idx, "Métrica"]
+            valor = df.loc[idx, col]
+            
+            if metrica in ["Ventas (€)", "Productividad Efectiva (€/h)"]:
+                df_formatted.loc[idx, col] = f"€{valor:.2f}"
+            else:  # Horas
+                df_formatted.loc[idx, col] = f"{valor:.2f}h"
+    
+    return df_formatted
+
+st.dataframe(formatear_productividad(productividad_df), use_container_width=True)
 
 # --------------------------------------------------
 # DISTRIBUCIÓN DE VENTAS
