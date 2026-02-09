@@ -380,7 +380,7 @@ except Exception as e:
 # --------------------------------------------------
 # CALCULAR PERSONAL REQUERIDO CON RESTRICCIONES
 # --------------------------------------------------
-def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_apertura, pers_cierre):
+def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_apertura, pers_cierre, tipo_productividad):
     """
     Calcula personal requerido aplicando restricciones de apertura/cierre y máximos
     
@@ -391,6 +391,11 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
       * Sala: 4 personas (5 en Lluria)
       * Cocina: 5 personas (6 en Lluria)
     - De lunes a viernes: NO se puede alcanzar el máximo (se resta 1)
+    - COCINA - Límites de frecuencia del personal máximo:
+      * Estándar L-V: máx 4 personas usado máx 3 veces (ESPERADO) o 2 veces (MÁXIMO)
+      * Estándar S-D: máx 5 personas usado máx 6 veces (ESPERADO) o 3 veces (MÁXIMO)
+      * Lluria L-V: máx 5 personas usado máx 3 veces (ESPERADO) o 2 veces (MÁXIMO)
+      * Lluria S-D: máx 6 personas usado máx 6 veces (ESPERADO) o 3 veces (MÁXIMO)
     - Objetivo: minimizar personal (usar ceil en lugar de redondeos generosos)
     """
     # Convertir horas a personas (ceil para minimizar personal)
@@ -453,17 +458,65 @@ def calcular_personal_requerido(matriz_horas, area, local, dias_orden, pers_aper
         except Exception as e:
             continue
     
+    # RESTRICCIONES DE FRECUENCIA PARA COCINA
+    if area == "COCINA":
+        for dia in dias_orden:
+            if dia not in matriz_personal.columns:
+                continue
+            
+            # Contar cuántos bloques tienen el personal máximo efectivo
+            bloques_con_maximo = (matriz_personal[dia] == max_efectivo).sum()
+            
+            # Determinar límite de frecuencia según tipo de productividad y día
+            if dia in dias_laborables:  # Lunes a Viernes
+                if tipo_productividad == "MÁXIMO":
+                    max_frecuencia = 2
+                else:  # ESPERADO o MÍNIMO
+                    max_frecuencia = 3
+            else:  # Sábado y Domingo
+                if tipo_productividad == "MÁXIMO":
+                    max_frecuencia = 3
+                else:  # ESPERADO o MÍNIMO
+                    max_frecuencia = 6
+            
+            # Si se excede el límite, reducir los bloques menos críticos
+            if bloques_con_maximo > max_frecuencia:
+                # Encontrar índices donde hay personal máximo
+                indices_maximo = matriz_personal[matriz_personal[dia] == max_efectivo].index
+                
+                # Calcular prioridad: bloques con menos ventas tienen menor prioridad
+                # (usamos la matriz de horas como proxy de ventas)
+                prioridades = []
+                for idx in indices_maximo:
+                    if idx in matriz_horas.index:
+                        prioridad = matriz_horas.loc[idx, dia]
+                        prioridades.append((idx, prioridad))
+                
+                # Ordenar por prioridad (menor a mayor)
+                prioridades.sort(key=lambda x: x[1])
+                
+                # Reducir personal en los bloques menos prioritarios
+                bloques_a_reducir = bloques_con_maximo - max_frecuencia
+                for i in range(bloques_a_reducir):
+                    if i < len(prioridades):
+                        idx_reducir = prioridades[i][0]
+                        # Reducir en 1 persona
+                        matriz_personal.loc[idx_reducir, dia] = max(
+                            matriz_personal.loc[idx_reducir, dia] - 1,
+                            1  # Mínimo 1 persona
+                        )
+    
     return matriz_personal
 
 # Calcular matrices de personal
 matriz_personal_sala = calcular_personal_requerido(
     matriz_horas_sala, "SALA", local, dias_orden, 
-    personal_apertura_sala, personal_cierre_sala
+    personal_apertura_sala, personal_cierre_sala, tipo_productividad
 )
 
 matriz_personal_cocina = calcular_personal_requerido(
     matriz_horas_cocina, "COCINA", local, dias_orden,
-    personal_apertura_cocina, personal_cierre_cocina
+    personal_apertura_cocina, personal_cierre_cocina, tipo_productividad
 )
 
 # Calcular horas reales
@@ -483,11 +536,22 @@ productividad_efectiva_real = ventas_por_dia / horas_reales_totales
 # Mostrar límites aplicados según local
 if local == "LLURIA":
     limites_texto = "**Límites de personal para LLURIA:** Sala máx. 5 (4 L-V) | Cocina máx. 6 (5 L-V)"
+    if tipo_productividad == "MÁXIMO":
+        frecuencia_cocina = "Cocina 5 pers. máx. 2 veces/día L-V | 6 pers. máx. 3 veces/día S-D"
+    else:
+        frecuencia_cocina = "Cocina 5 pers. máx. 3 veces/día L-V | 6 pers. máx. 6 veces/día S-D"
 else:
     limites_texto = f"**Límites de personal para {local}:** Sala máx. 4 (3 L-V) | Cocina máx. 5 (4 L-V)"
+    if tipo_productividad == "MÁXIMO":
+        frecuencia_cocina = "Cocina 4 pers. máx. 2 veces/día L-V | 5 pers. máx. 3 veces/día S-D"
+    else:
+        frecuencia_cocina = "Cocina 4 pers. máx. 3 veces/día L-V | 5 pers. máx. 6 veces/día S-D"
 
 st.info(f"""
 {limites_texto}
+
+**Restricciones de frecuencia - {tipo_productividad}:**
+- {frecuencia_cocina}
 
 **Personal de Apertura/Cierre configurado:**
 - **Sala:** {personal_apertura_sala} persona(s) apertura | {personal_cierre_sala} persona(s) cierre
